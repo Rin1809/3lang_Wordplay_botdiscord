@@ -44,6 +44,7 @@ async def get_channel_game_settings(bot: commands.Bot, guild_id: int, channel_id
     return timeout, min_players, game_lang_for_channel # Trả về game_lang_for_channel (có thể là None)
 
 
+
 async def _send_message_smart(target: discord.Interaction | commands.Context, content=None, embed=None, view=None, ephemeral=False, delete_after=None):
     """Gửi tin nhắn thông minh dựa trên context hoặc interaction."""
     original_message_response = None
