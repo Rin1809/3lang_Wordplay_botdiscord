@@ -1,9 +1,9 @@
 # Noitu/database.py
 import asyncpg
 import traceback
-from . import config as bot_cfg # Đổi tên tránh trùng
+from . import config as bot_cfg
 
-async def init_db(database_url: str, default_prefix: str, default_timeout: int, default_min_players: int):
+async def init_db(database_url: str, default_prefix: str, default_timeout: int, default_min_players: int, default_language: str): 
     if not database_url:
         print("LỖI: DATABASE_URL ko tìm thấy. Check .env or config.py")
         return None
@@ -16,9 +16,10 @@ async def init_db(database_url: str, default_prefix: str, default_timeout: int, 
                     guild_id BIGINT PRIMARY KEY,
                     command_prefix VARCHAR(5) DEFAULT '{default_prefix}',
                     timeout_seconds INTEGER DEFAULT {default_timeout},
-                    min_players_for_timeout INTEGER DEFAULT {default_min_players}
+                    min_players_for_timeout INTEGER DEFAULT {default_min_players},
+                    game_language VARCHAR(2) DEFAULT '{default_language}' 
                 );
-            ''')
+            ''') 
 
             # Leaderboard Stats
             await connection.execute('''
@@ -47,33 +48,39 @@ async def init_db(database_url: str, default_prefix: str, default_timeout: int, 
 async def get_guild_config(db_pool: asyncpg.Pool, guild_id: int):
     if not db_pool: return None # Guard clause
     async with db_pool.acquire() as connection:
-        row = await connection.fetchrow("SELECT command_prefix, timeout_seconds, min_players_for_timeout FROM guild_configs WHERE guild_id = $1", guild_id)
+        # Thêm game_language vào câu SELECT
+        row = await connection.fetchrow("SELECT command_prefix, timeout_seconds, min_players_for_timeout, game_language FROM guild_configs WHERE guild_id = $1", guild_id)
         if row:
             return dict(row)
         
         # Tạo config mặc định nếu chưa có, dùng giá trị từ bot_cfg
         await connection.execute(
-            "INSERT INTO guild_configs (guild_id, command_prefix, timeout_seconds, min_players_for_timeout) VALUES ($1, $2, $3, $4) ON CONFLICT (guild_id) DO NOTHING",
-            guild_id, bot_cfg.DEFAULT_COMMAND_PREFIX, bot_cfg.DEFAULT_TIMEOUT_SECONDS, bot_cfg.DEFAULT_MIN_PLAYERS_FOR_TIMEOUT
+            "INSERT INTO guild_configs (guild_id, command_prefix, timeout_seconds, min_players_for_timeout, game_language) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (guild_id) DO NOTHING", # Thêm game_language
+            guild_id, bot_cfg.DEFAULT_COMMAND_PREFIX, bot_cfg.DEFAULT_TIMEOUT_SECONDS, bot_cfg.DEFAULT_MIN_PLAYERS_FOR_TIMEOUT, bot_cfg.DEFAULT_GAME_LANGUAGE # Thêm giá trị default
         )
         # Lấy lại để đảm bảo trả về config (kể cả mới tạo)
-        row_after_insert = await connection.fetchrow("SELECT command_prefix, timeout_seconds, min_players_for_timeout FROM guild_configs WHERE guild_id = $1", guild_id)
+        row_after_insert = await connection.fetchrow("SELECT command_prefix, timeout_seconds, min_players_for_timeout, game_language FROM guild_configs WHERE guild_id = $1", guild_id)
         if row_after_insert:
             return dict(row_after_insert)
         
         # Fallback cuối cùng (ít khi xảy ra)
-        return {"command_prefix": bot_cfg.DEFAULT_COMMAND_PREFIX, "timeout_seconds": bot_cfg.DEFAULT_TIMEOUT_SECONDS, "min_players_for_timeout": bot_cfg.DEFAULT_MIN_PLAYERS_FOR_TIMEOUT}
+        return {
+            "command_prefix": bot_cfg.DEFAULT_COMMAND_PREFIX, 
+            "timeout_seconds": bot_cfg.DEFAULT_TIMEOUT_SECONDS, 
+            "min_players_for_timeout": bot_cfg.DEFAULT_MIN_PLAYERS_FOR_TIMEOUT,
+            "game_language": bot_cfg.DEFAULT_GAME_LANGUAGE # Thêm game_language
+        }
 
 
 async def set_guild_config_value(db_pool: asyncpg.Pool, guild_id: int, key: str, value):
     if not db_pool: return False
-    allowed_keys = ["command_prefix", "timeout_seconds", "min_players_for_timeout"]
+    allowed_keys = ["command_prefix", "timeout_seconds", "min_players_for_timeout", "game_language"] # Thêm game_language
     if key not in allowed_keys: return False
     async with db_pool.acquire() as connection:
         # Đảm bảo entry tồn tại trước khi update, dùng giá trị từ bot_cfg
         await connection.execute(
-            "INSERT INTO guild_configs (guild_id, command_prefix, timeout_seconds, min_players_for_timeout) VALUES ($1, $2, $3, $4) ON CONFLICT (guild_id) DO NOTHING",
-            guild_id, bot_cfg.DEFAULT_COMMAND_PREFIX, bot_cfg.DEFAULT_TIMEOUT_SECONDS, bot_cfg.DEFAULT_MIN_PLAYERS_FOR_TIMEOUT
+            "INSERT INTO guild_configs (guild_id, command_prefix, timeout_seconds, min_players_for_timeout, game_language) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (guild_id) DO NOTHING", # Thêm game_language
+            guild_id, bot_cfg.DEFAULT_COMMAND_PREFIX, bot_cfg.DEFAULT_TIMEOUT_SECONDS, bot_cfg.DEFAULT_MIN_PLAYERS_FOR_TIMEOUT, bot_cfg.DEFAULT_GAME_LANGUAGE # Thêm giá trị default
         )
         await connection.execute(f"UPDATE guild_configs SET {key} = $1 WHERE guild_id = $2", value, guild_id)
     return True

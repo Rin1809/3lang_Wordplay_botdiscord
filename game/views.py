@@ -2,12 +2,10 @@
 import discord
 from discord.ui import Button, View
 import traceback
-from typing import Callable, Coroutine, Any # Cho type hint
+from typing import Callable, Coroutine, Any
 from .. import utils 
-from discord.ext import commands # Import commands để type hint bot instance
+from discord.ext import commands
 
-# Forward declaration cho type hinting nếu game_logic import views (tránh circular import)
-# from ..game import logic as game_logic_module # Ko cần nếu chỉ truyền callable
 
 class PostGameView(View):
     def __init__(self, channel: discord.TextChannel, original_starter_id: int, 

@@ -7,8 +7,8 @@ import traceback
 from .. import utils
 from .. import database
 from .. import config as bot_cfg 
-from ..game import views as game_views # Import views từ game package
-from ..game import logic as game_logic # Import logic để lấy callable
+from ..game import views as game_views 
+from ..game import logic as game_logic 
 
 
 class GeneralCog(commands.Cog):

@@ -6,31 +6,31 @@ import traceback
 
 from .. import utils
 from .. import database
-from ..game import logic as game_logic # Import logic chính của game
+from ..game import logic as game_logic 
 
 class GameCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
-        self.bot = bot # Lưu bot instance
+        self.bot = bot 
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        if message.author == self.bot.user or not message.guild: # Bỏ qua bot và DM
+        if message.author == self.bot.user or not message.guild: 
             return
 
         ctx = await self.bot.get_context(message)
-        if ctx.valid and ctx.command: # Nếu message gọi 1 command hợp lệ -> ko phải lượt đi game
+        if ctx.valid and ctx.command:
             return
 
-        await game_logic.process_game_message(self.bot, message) # Truyền self.bot
+        await game_logic.process_game_message(self.bot, message) 
 
 
     @commands.command(name='bxh', aliases=['leaderboard', 'xephang'])
     async def leaderboard_command_prefix(self, ctx: commands.Context):
-        if not ctx.guild: # Chỉ dùng trong server
+        if not ctx.guild: 
             await utils._send_message_smart(ctx, "Lệnh này chỉ dùng trong server.", ephemeral=True)
             return
 
-        # Tạo embed BXH, truyền self.bot trước, sau đó là ctx.guild
+     
         embed, error_msg = await utils.generate_leaderboard_embed(self.bot, ctx.guild) # Sửa thứ tự tham số
         if error_msg: # Có lỗi
             is_db_error = "DB chưa sẵn sàng" in error_msg 
