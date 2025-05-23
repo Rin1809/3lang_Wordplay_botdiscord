@@ -12,24 +12,28 @@ class AdminCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot 
 
-    # --- SLASH CONFIG COMMANDS ---
     config_slash_group = app_commands.Group(name="config", description="Cấu hình bot Nối Từ cho server này.", guild_only=True)
-
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild: discord.Guild):
+        # Ensures a basic config entry exists. vn_channel_id and jp_channel_id will be NULL by default.
         await database.get_guild_config(self.bot.db_pool, guild.id) 
-        print(f"Đã tham gia server mới: {guild.name} (ID: {guild.id}). Cấu hình mặc định đã được áp dụng nếu chưa có.")
+        print(f"Đã tham gia server mới: {guild.name} (ID: {guild.id}). Cấu hình kênh mặc định là NULL.")
 
-    # --- PREFIX CONFIG COMMANDS ---
     @commands.group(name="config", invoke_without_command=True)
     @commands.has_permissions(manage_guild=True) 
     @commands.guild_only() 
     async def config_group_prefix(self, ctx: commands.Context):
         guild_cfg = await database.get_guild_config(self.bot.db_pool, ctx.guild.id)
         prefix = guild_cfg.get("command_prefix", bot_cfg.DEFAULT_COMMAND_PREFIX) if guild_cfg else bot_cfg.DEFAULT_COMMAND_PREFIX
-        help_msg = (f"Dùng: `{prefix}config prefix <kí tự>`, `{prefix}config timeout <giây>`, "
-                    f"`{prefix}config minplayers <số>`, `{prefix}config language <vn|jp>`.\nHoặc dùng lệnh slash `/config ...`.") # Thêm language
+        help_msg = (
+            f"Dùng: `{prefix}config prefix <kí tự>`, `{prefix}config timeout <giây>`, "
+            f"`{prefix}config minplayers <số>`.\n"
+            f"Để cấu hình kênh chơi, vui lòng dùng lệnh slash:\n"
+            f"`/config set_vn_channel <#kênh>`\n"
+            f"`/config set_jp_channel <#kênh>`\n"
+            f"Hoặc dùng các lệnh slash khác như `/config view ...`."
+        )
         await utils._send_message_smart(ctx, help_msg) 
 
     @config_group_prefix.error 
@@ -77,21 +81,6 @@ class AdminCog(commands.Cog):
         await database.set_guild_config_value(self.bot.db_pool, ctx.guild.id, "min_players_for_timeout", count)
         await utils._send_message_smart(ctx, f"✅ Đã đổi số người chơi tối thiểu kích hoạt timeout thành: `{count}`.", ephemeral=True)
 
-    @config_group_prefix.command(name="language") # Lệnh prefix mới
-    @commands.has_permissions(manage_guild=True)
-    @commands.guild_only()
-    async def config_language_set(self, ctx: commands.Context, lang_code: str):
-        lang_code_upper = lang_code.upper()
-        if lang_code_upper not in ["VN", "JP"]:
-            await utils._send_message_smart(ctx, "Mã ngôn ngữ không hợp lệ. Dùng 'VN' hoặc 'JP'.", ephemeral=True); return
-        if lang_code_upper == "JP" and not self.bot.kakasi:
-            await utils._send_message_smart(ctx, "⚠️ Không thể chuyển sang Tiếng Nhật do thiếu thư viện PyKakasi trên bot.", ephemeral=True); return
-
-        await database.set_guild_config_value(self.bot.db_pool, ctx.guild.id, "game_language", lang_code_upper)
-        lang_name = "Tiếng Việt" if lang_code_upper == "VN" else "Tiếng Nhật"
-        await utils._send_message_smart(ctx, f"✅ Đã đổi ngôn ngữ game của server thành: **{lang_name}**.", ephemeral=True)
-
-
     # --- Lệnh con của config_slash_group ---
     @config_slash_group.command(name="view", description="Xem cấu hình Nối Từ hiện tại của server.")
     @app_commands.checks.has_permissions(manage_guild=True) 
@@ -102,14 +91,27 @@ class AdminCog(commands.Cog):
         prefix = cfg.get("command_prefix", bot_cfg.DEFAULT_COMMAND_PREFIX)
         timeout = cfg.get("timeout_seconds", bot_cfg.DEFAULT_TIMEOUT_SECONDS)
         min_players = cfg.get("min_players_for_timeout", bot_cfg.DEFAULT_MIN_PLAYERS_FOR_TIMEOUT)
-        game_lang_code = cfg.get("game_language", bot_cfg.DEFAULT_GAME_LANGUAGE) # Lấy ngôn ngữ
-        game_lang_name = "Tiếng Việt" if game_lang_code == "VN" else "Tiếng Nhật"
+        
+        vn_channel_id = cfg.get("vn_channel_id")
+        jp_channel_id = cfg.get("jp_channel_id")
+
+        vn_channel_mention = f"<#{vn_channel_id}>" if vn_channel_id else "Chưa đặt"
+        jp_channel_mention = f"<#{jp_channel_id}>" if jp_channel_id else "Chưa đặt"
         
         embed = discord.Embed(title=f"⚙️ Cấu hình Nối Từ - {interaction.guild.name}", color=discord.Color.blue())
-        embed.add_field(name="Ngôn Ngữ Game", value=f"`{game_lang_name} ({game_lang_code})`", inline=False) # Hiển thị ngôn ngữ
+        embed.add_field(name="Kênh Tiếng Việt (VN)", value=vn_channel_mention, inline=False)
+        embed.add_field(name="Kênh Tiếng Nhật (JP)", value=jp_channel_mention, inline=False)
         embed.add_field(name="Prefix Lệnh", value=f"`{prefix}`", inline=False)
         embed.add_field(name="Thời Gian Timeout Thắng", value=f"`{timeout}` giây", inline=False)
         embed.add_field(name="Số Người Chơi Tối Thiểu (để kích hoạt timeout)", value=f"`{min_players}` người", inline=False)
+        
+        footer_text = []
+        if vn_channel_id and vn_channel_id == jp_channel_id:
+            footer_text.append("⚠️ Cảnh báo: Một kênh được đặt cho cả VN và JP. Kênh này sẽ hoạt động theo cấu hình được đặt sau cùng.")
+
+        if footer_text:
+            embed.set_footer(text="\n".join(footer_text))
+
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @config_slash_group.command(name="set_prefix", description="Đặt prefix lệnh mới cho bot (1-5 ký tự).")
@@ -142,27 +144,43 @@ class AdminCog(commands.Cog):
         await database.set_guild_config_value(self.bot.db_pool, interaction.guild_id, "min_players_for_timeout", count)
         await interaction.followup.send(f"✅ Đã đổi số người chơi tối thiểu để kích hoạt timeout thành: `{count}`.", ephemeral=True)
 
-    @config_slash_group.command(name="set_language", description="Đặt ngôn ngữ game cho server (VN hoặc JP).") # Lệnh slash mới
-    @app_commands.describe(language_code="Mã ngôn ngữ ('vn' hoặc 'jp').")
+    @config_slash_group.command(name="set_vn_channel", description="Đặt kênh chơi Nối Từ Tiếng Việt cho server.")
+    @app_commands.describe(channel="Kênh text sẽ dùng để chơi Tiếng Việt.")
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def slash_config_set_language(self, interaction: discord.Interaction, language_code: str):
+    async def slash_config_set_vn_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
-        lang_code_upper = language_code.strip().upper()
-        if lang_code_upper not in ["VN", "JP"]:
-            await interaction.followup.send("Mã ngôn ngữ không hợp lệ. Dùng 'VN' hoặc 'JP'.", ephemeral=True); return
         
-        if lang_code_upper == "JP" and not self.bot.kakasi:
+        current_config = await database.get_guild_config(self.bot.db_pool, interaction.guild_id)
+        if current_config and current_config.get("jp_channel_id") == channel.id:
+            # Unset from JP if this channel was the JP channel
+            await database.set_guild_config_value(self.bot.db_pool, interaction.guild_id, "jp_channel_id", None)
+            await interaction.followup.send(f"ℹ️ Kênh {channel.mention} đã được gỡ khỏi cấu hình kênh Tiếng Nhật.", ephemeral=True)
+
+        await database.set_guild_config_value(self.bot.db_pool, interaction.guild_id, "vn_channel_id", channel.id)
+        await interaction.followup.send(f"✅ Kênh {channel.mention} đã được đặt làm kênh Nối Từ Tiếng Việt.", ephemeral=True)
+
+    @config_slash_group.command(name="set_jp_channel", description="Đặt kênh chơi Nối Từ Tiếng Nhật (Shiritori) cho server.")
+    @app_commands.describe(channel="Kênh text sẽ dùng để chơi Tiếng Nhật.")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def slash_config_set_jp_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        await interaction.response.defer(ephemeral=True)
+
+        if not self.bot.kakasi:
             await interaction.followup.send(
-                "⚠️ Không thể chuyển sang Tiếng Nhật do bot hiện tại chưa được cấu hình đúng (thiếu thư viện PyKakasi). "
+                "⚠️ Không thể đặt kênh Tiếng Nhật do bot hiện tại chưa được cấu hình đúng (thiếu thư viện PyKakasi). "
                 "Vui lòng liên hệ người quản lý bot.", 
                 ephemeral=True
             )
             return
 
-        await database.set_guild_config_value(self.bot.db_pool, interaction.guild_id, "game_language", lang_code_upper)
-        lang_name = "Tiếng Việt" if lang_code_upper == "VN" else "Tiếng Nhật"
-        await interaction.followup.send(f"✅ Đã đổi ngôn ngữ game của server thành: **{lang_name}**.", ephemeral=True)
-
+        current_config = await database.get_guild_config(self.bot.db_pool, interaction.guild_id)
+        if current_config and current_config.get("vn_channel_id") == channel.id:
+            # Unset from VN if this channel was the VN channel
+            await database.set_guild_config_value(self.bot.db_pool, interaction.guild_id, "vn_channel_id", None)
+            await interaction.followup.send(f"ℹ️ Kênh {channel.mention} đã được gỡ khỏi cấu hình kênh Tiếng Việt.", ephemeral=True)
+            
+        await database.set_guild_config_value(self.bot.db_pool, interaction.guild_id, "jp_channel_id", channel.id)
+        await interaction.followup.send(f"✅ Kênh {channel.mention} đã được đặt làm kênh Nối Từ Tiếng Nhật (Shiritori).", ephemeral=True)
 
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         error_message = "Có lỗi xảy ra khi thực hiện lệnh config." 
@@ -181,6 +199,9 @@ class AdminCog(commands.Cog):
             error_message = f"Lệnh '{error.name}' đã được đăng ký rồi. Vui lòng kiểm tra lại code."
             print(f"Lỗi CommandAlreadyRegistered trong cog_app_command_error cho lệnh: {error.name}") 
             log_error = True 
+        elif isinstance(error, app_commands.TransformerError) and isinstance(error.value, discord.TextChannel): # Lỗi convert channel
+             error_message = f"Không thể tìm thấy hoặc kênh `{str(error.value)}` không phải kênh text hợp lệ."
+             log_error = False
 
         if log_error: 
             print(f"Lỗi lệnh /config (error handler for cog): {error}")
@@ -193,7 +214,6 @@ class AdminCog(commands.Cog):
                 await interaction.followup.send(error_message, ephemeral=True)
             except discord.HTTPException: 
                 print(f"Không thể gửi followup error cho /config sau khi đã response: {error_message}")
-
 
 async def setup(bot: commands.Bot): 
     cog = AdminCog(bot)
