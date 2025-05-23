@@ -16,7 +16,6 @@ class AdminCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild: discord.Guild):
-        # Ensures a basic config entry exists. vn_channel_id and jp_channel_id will be NULL by default.
         await database.get_guild_config(self.bot.db_pool, guild.id) 
         print(f"Đã tham gia server mới: {guild.name} (ID: {guild.id}). Cấu hình kênh mặc định là NULL.")
 
@@ -81,7 +80,6 @@ class AdminCog(commands.Cog):
         await database.set_guild_config_value(self.bot.db_pool, ctx.guild.id, "min_players_for_timeout", count)
         await utils._send_message_smart(ctx, f"✅ Đã đổi số người chơi tối thiểu kích hoạt timeout thành: `{count}`.", ephemeral=True)
 
-    # --- Lệnh con của config_slash_group ---
     @config_slash_group.command(name="view", description="Xem cấu hình Nối Từ hiện tại của server.")
     @app_commands.checks.has_permissions(manage_guild=True) 
     async def slash_config_view(self, interaction: discord.Interaction):
@@ -98,19 +96,22 @@ class AdminCog(commands.Cog):
         vn_channel_mention = f"<#{vn_channel_id}>" if vn_channel_id else "Chưa đặt"
         jp_channel_mention = f"<#{jp_channel_id}>" if jp_channel_id else "Chưa đặt"
         
-        embed = discord.Embed(title=f"⚙️ Cấu hình Nối Từ - {interaction.guild.name}", color=discord.Color.blue())
-        embed.add_field(name="Kênh Tiếng Việt (VN)", value=vn_channel_mention, inline=False)
-        embed.add_field(name="Kênh Tiếng Nhật (JP)", value=jp_channel_mention, inline=False)
-        embed.add_field(name="Prefix Lệnh", value=f"`{prefix}`", inline=False)
-        embed.add_field(name="Thời Gian Timeout Thắng", value=f"`{timeout}` giây", inline=False)
-        embed.add_field(name="Số Người Chơi Tối Thiểu (để kích hoạt timeout)", value=f"`{min_players}` người", inline=False)
+        embed = discord.Embed(title=f"{bot_cfg.CONFIG_ICON} Cấu hình Nối Từ", color=bot_cfg.EMBED_COLOR_CONFIG)
+        if interaction.guild.icon:
+            embed.set_thumbnail(url=interaction.guild.icon.url)
         
-        footer_text = []
+        embed.add_field(name=f"{bot_cfg.GAME_VN_ICON} Kênh Tiếng Việt (VN)", value=vn_channel_mention, inline=True)
+        embed.add_field(name=f"{bot_cfg.GAME_JP_ICON} Kênh Tiếng Nhật (JP)", value=jp_channel_mention, inline=True)
+        embed.add_field(name="📝 Prefix Lệnh", value=f"`{prefix}`", inline=True)
+        embed.add_field(name="⏱️ Thời Gian Timeout Thắng", value=f"`{timeout}` giây", inline=False)
+        embed.add_field(name="👥 Số Người Chơi Tối Thiểu (kích hoạt timeout)", value=f"`{min_players}` người", inline=False)
+        
+        footer_parts = [f"Server: {interaction.guild.name}"]
         if vn_channel_id and vn_channel_id == jp_channel_id:
-            footer_text.append("⚠️ Cảnh báo: Một kênh được đặt cho cả VN và JP. Kênh này sẽ hoạt động theo cấu hình được đặt sau cùng.")
+            footer_parts.append("⚠️ CẢNH BÁO: Một kênh được đặt cho cả VN và JP. Kênh này sẽ hoạt động theo cấu hình được đặt sau cùng.")
 
-        if footer_text:
-            embed.set_footer(text="\n".join(footer_text))
+        if footer_parts:
+            embed.set_footer(text=" | ".join(footer_parts))
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -151,13 +152,15 @@ class AdminCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         
         current_config = await database.get_guild_config(self.bot.db_pool, interaction.guild_id)
-        if current_config and current_config.get("jp_channel_id") == channel.id:
-            # Unset from JP if this channel was the JP channel
+        jp_channel_id_current = current_config.get("jp_channel_id") if current_config else None
+
+        if jp_channel_id_current == channel.id:
             await database.set_guild_config_value(self.bot.db_pool, interaction.guild_id, "jp_channel_id", None)
-            await interaction.followup.send(f"ℹ️ Kênh {channel.mention} đã được gỡ khỏi cấu hình kênh Tiếng Nhật.", ephemeral=True)
+            await interaction.followup.send(f"ℹ️ Kênh {channel.mention} đã được gỡ khỏi cấu hình kênh Tiếng Nhật.", ephemeral=True, suppress_embeds=True) # suppress_embeds for followup
 
         await database.set_guild_config_value(self.bot.db_pool, interaction.guild_id, "vn_channel_id", channel.id)
-        await interaction.followup.send(f"✅ Kênh {channel.mention} đã được đặt làm kênh Nối Từ Tiếng Việt.", ephemeral=True)
+        await interaction.followup.send(f"✅ Kênh {channel.mention} đã được đặt làm kênh Nối Từ {bot_cfg.GAME_VN_ICON} Tiếng Việt.", ephemeral=True, suppress_embeds=True)
+
 
     @config_slash_group.command(name="set_jp_channel", description="Đặt kênh chơi Nối Từ Tiếng Nhật (Shiritori) cho server.")
     @app_commands.describe(channel="Kênh text sẽ dùng để chơi Tiếng Nhật.")
@@ -174,13 +177,14 @@ class AdminCog(commands.Cog):
             return
 
         current_config = await database.get_guild_config(self.bot.db_pool, interaction.guild_id)
-        if current_config and current_config.get("vn_channel_id") == channel.id:
-            # Unset from VN if this channel was the VN channel
+        vn_channel_id_current = current_config.get("vn_channel_id") if current_config else None
+        
+        if vn_channel_id_current == channel.id:
             await database.set_guild_config_value(self.bot.db_pool, interaction.guild_id, "vn_channel_id", None)
-            await interaction.followup.send(f"ℹ️ Kênh {channel.mention} đã được gỡ khỏi cấu hình kênh Tiếng Việt.", ephemeral=True)
+            await interaction.followup.send(f"ℹ️ Kênh {channel.mention} đã được gỡ khỏi cấu hình kênh Tiếng Việt.", ephemeral=True, suppress_embeds=True)
             
         await database.set_guild_config_value(self.bot.db_pool, interaction.guild_id, "jp_channel_id", channel.id)
-        await interaction.followup.send(f"✅ Kênh {channel.mention} đã được đặt làm kênh Nối Từ Tiếng Nhật (Shiritori).", ephemeral=True)
+        await interaction.followup.send(f"✅ Kênh {channel.mention} đã được đặt làm kênh Nối Từ {bot_cfg.GAME_JP_ICON} Tiếng Nhật (Shiritori).", ephemeral=True, suppress_embeds=True)
 
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         error_message = "Có lỗi xảy ra khi thực hiện lệnh config." 
@@ -199,7 +203,7 @@ class AdminCog(commands.Cog):
             error_message = f"Lệnh '{error.name}' đã được đăng ký rồi. Vui lòng kiểm tra lại code."
             print(f"Lỗi CommandAlreadyRegistered trong cog_app_command_error cho lệnh: {error.name}") 
             log_error = True 
-        elif isinstance(error, app_commands.TransformerError) and isinstance(error.value, discord.TextChannel): # Lỗi convert channel
+        elif isinstance(error, app_commands.TransformerError) and isinstance(error.value, discord.TextChannel): 
              error_message = f"Không thể tìm thấy hoặc kênh `{str(error.value)}` không phải kênh text hợp lệ."
              log_error = False
 

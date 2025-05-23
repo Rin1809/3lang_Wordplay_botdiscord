@@ -2,6 +2,8 @@
 import discord
 from discord.ext import commands
 from discord.ui import View 
+import random
+
 from . import database
 from . import config as bot_cfg 
 from . import wiktionary_api 
@@ -122,44 +124,66 @@ async def generate_help_embed(bot: commands.Bot, guild: discord.Guild, current_p
             f"Admin có thể dùng lệnh `/config set_vn_channel` hoặc `/config set_jp_channel`."
         )
 
-    embed_title = f"📜 Luật chơi Nối Từ ({'Tiếng Việt' if game_lang == 'VN' else 'Tiếng Nhật - しりとり'})"
-    embed = discord.Embed(title=embed_title, color=discord.Color.teal())
+    embed_title = f"{bot_cfg.HELP_ICON} Hướng dẫn chơi Nối Từ ({bot_cfg.GAME_VN_ICON} Tiếng Việt / {bot_cfg.GAME_JP_ICON} Tiếng Nhật)"
+    embed_color = bot_cfg.EMBED_COLOR_HELP
     
-    common_rules = (
-        f"Sử dụng lệnh slash (gõ `/` để xem) hoặc lệnh prefix (hiện tại là `{current_prefix}`).\n"
-        f"Sau khi có ít nhất **{min_p}** người chơi khác nhau tham gia, nếu sau **{timeout_s} giây** không ai nối được từ của bạn, bạn **thắng**!"
+    embed = discord.Embed(title=embed_title, color=embed_color)
+    if bot.user and bot.user.display_avatar:
+        embed.set_thumbnail(url=bot.user.display_avatar.url)
+
+    common_rules_intro = (
+        f"Chào mừng bạn đến với Nối Từ! Dưới đây là các lệnh và luật chơi cơ bản.\n"
+        f"Sử dụng lệnh slash (gõ `/` để xem) hoặc lệnh prefix (hiện tại của server này là `{current_prefix}`).\n"
     )
+    embed.description = common_rules_intro
 
+    game_rules_title = f"{bot_cfg.RULES_ICON} Luật chơi cho kênh này: "
     if game_lang == "VN":
-        embed.description = (
-            f"{common_rules}\n"
-            f"**Luật chơi (Tiếng Việt):** Đưa ra cụm từ **đúng 2 chữ** tiếng Việt, có nghĩa và được Wiktionary công nhận. "
-            f"Chữ đầu của cụm mới phải là chữ thứ hai của cụm trước."
+        game_rules_title += f"{bot_cfg.GAME_VN_ICON} **Tiếng Việt**"
+        game_rules_details = (
+            f"• Đưa ra cụm từ có **đúng 2 chữ** tiếng Việt, có nghĩa và được từ điển/Wiktionary công nhận.\n"
+            f"• Chữ đầu của cụm mới phải là chữ thứ hai của cụm trước (ví dụ: *học **sinh*** → ***sinh** viên*).\n"
+            f"• Sau khi có ít nhất **{min_p}** người chơi khác nhau tham gia, nếu sau **{timeout_s} giây** không ai nối được từ của bạn, bạn **thắng**!"
         )
-        start_game_help = f"`/start [chữ1 chữ2]` hoặc `{current_prefix}start [chữ1 chữ2]`.\nNếu không nhập từ, bot tự chọn."
+        start_game_help_specific = f"`/start [chữ1 chữ2]` hoặc `{current_prefix}start [chữ1 chữ2]`."
     else: # JP
-        embed.description = (
-            f"{common_rules}\n"
-            f"**Luật chơi (Tiếng Nhật - Shiritori):** Đưa ra một từ tiếng Nhật (Kanji, Hiragana, Katakana, Romaji). "
-            f"Từ phải có nghĩa và được từ điển/Wiktionary công nhận.\n"
-            f"Âm tiết (Hiragana) cuối của từ trước phải là âm tiết đầu của từ sau.\n"
-            f"**QUAN TRỌNG:** Từ kết thúc bằng âm 'ん' (n) sẽ khiến người chơi đó **THUA CUỘC** ngay lập tức!"
+        game_rules_title += f"{bot_cfg.GAME_JP_ICON} **Tiếng Nhật (Shiritori - しりとり)**"
+        game_rules_details = (
+            f"• Đưa ra một từ tiếng Nhật (Kanji, Hiragana, Katakana, Romaji).\n"
+            f"• Từ phải có nghĩa và được từ điển/Wiktionary công nhận.\n"
+            f"• Âm tiết (Hiragana) cuối của từ trước phải là âm tiết đầu của từ sau (ví dụ: *さく**ら*** → ***ら**いおん*).\n"
+            f"• **QUAN TRỌNG:** Từ kết thúc bằng âm 'ん' (n) sẽ khiến người chơi đó **THUA CUỘC** ngay lập tức!\n"
+            f"• Sau khi có ít nhất **{min_p}** người chơi khác nhau tham gia, nếu sau **{timeout_s} giây** không ai nối được từ của bạn, bạn **thắng**!"
         )
-        start_game_help = f"`/start [từ tiếng Nhật]` hoặc `{current_prefix}start [từ tiếng Nhật]`.\nNếu không nhập từ, bot tự chọn."
+        start_game_help_specific = f"`/start [từ tiếng Nhật]` hoặc `{current_prefix}start [từ tiếng Nhật]`."
+    
+    embed.add_field(name=game_rules_title, value=game_rules_details, inline=False)
 
-    embed.add_field(name="🎮 Bắt đầu game", value=f"{start_game_help}\nNút 'Bắt Đầu Nhanh' (bot chọn từ).", inline=False)
-    embed.add_field(name="🛑 Dừng game", value=f"`/stop` hoặc `{current_prefix}stop`.", inline=False)
-    embed.add_field(name="🏆 Bảng xếp hạng", value=f"`/bxh` hoặc `{current_prefix}bxh` (hiển thị BXH cho ngôn ngữ của kênh này).", inline=False)
-    embed.add_field(name="⚙️ Cấu hình (Admin)",
-                    value=(f"`/config view` - Xem cấu hình kênh.\n"
-                           f"`/config set_prefix <kí_tự>`\n"
-                           f"`/config set_timeout <giây>`\n"
-                           f"`/config set_minplayers <số>`\n"
-                           f"`/config set_vn_channel <#kênh>` - Đặt kênh chơi Tiếng Việt.\n"
-                           f"`/config set_jp_channel <#kênh>` - Đặt kênh chơi Tiếng Nhật.\n"
-                           f"Hoặc `{current_prefix}config ...` (lệnh prefix có thể không hỗ trợ hết các cấu hình kênh)."),
+    embed.add_field(name=f"{bot_cfg.GAME_START_ICON} Bắt đầu game", 
+                    value=f"{start_game_help_specific}\nNếu không nhập từ, bot sẽ tự chọn từ ngẫu nhiên.\nNút 'Bắt Đầu Nhanh' bên dưới cũng sẽ để bot chọn từ.", 
                     inline=False)
-    embed.set_footer(text=f"Bot thả reaction: ✅ đúng, ❌ sai từ/đã dùng, ⚠️ sai lượt, {bot_cfg.SHIRITORI_LOSS_REACTION} thua (luật 'ん').")
+    embed.add_field(name=f"{bot_cfg.STOP_ICON} Dừng game", value=f"`/stop` hoặc `{current_prefix}stop`.", inline=False)
+    embed.add_field(name=f"{bot_cfg.LEADERBOARD_ICON} Bảng xếp hạng", value=f"`/bxh` hoặc `{current_prefix}bxh` (hiển thị BXH cho ngôn ngữ của kênh này).", inline=False)
+    
+    admin_cmds_value = (
+        f"`/config view` - Xem cấu hình kênh.\n"
+        f"`/config set_prefix <kí_tự>`\n"
+        f"`/config set_timeout <giây>`\n"
+        f"`/config set_minplayers <số>`\n"
+        f"`/config set_vn_channel <#kênh>`\n"
+        f"`/config set_jp_channel <#kênh>`\n"
+        f"(Hoặc dùng `{current_prefix}config ...` cho một số cài đặt cơ bản)"
+    )
+    embed.add_field(name=f"{bot_cfg.CONFIG_ICON} Cấu hình (Admin)", value=admin_cmds_value, inline=False)
+    
+    reactions_guide = (
+        f"{bot_cfg.CORRECT_REACTION} Từ hợp lệ | "
+        f"{bot_cfg.ERROR_REACTION} Từ không hợp lệ / đã dùng | "
+        f"{bot_cfg.WRONG_TURN_REACTION} Sai lượt chơi\n"
+        f"{bot_cfg.SHIRITORI_LOSS_REACTION} Thua do luật 'ん' (Tiếng Nhật)"
+    )
+    embed.add_field(name="💡 Reactions của Bot", value=reactions_guide, inline=False)
+    embed.set_footer(text=f"Bot Nối Từ | {guild.name}")
     return embed, None
 
 
@@ -172,9 +196,8 @@ async def generate_leaderboard_embed(bot: commands.Bot, guild: discord.Guild, ga
     if game_language not in ["VN", "JP"]:
         return None, "Lỗi: Ngôn ngữ không hợp lệ cho bảng xếp hạng."
 
-    game_lang_name = "Tiếng Việt" if game_language == "VN" else "Tiếng Nhật (しりとり)"
+    game_lang_name = f"{bot_cfg.GAME_VN_ICON} Tiếng Việt" if game_language == "VN" else f"{bot_cfg.GAME_JP_ICON} Tiếng Nhật (しりとり)"
     async with bot.db_pool.acquire() as conn:
-        # Thêm cột lost_by_n_ending vào SELECT nếu cần hiển thị
         rows = await conn.fetch(
             """
             SELECT name, wins, correct_moves, wrong_word_link, invalid_wiktionary, used_word_error, wrong_turn, 
@@ -192,26 +215,46 @@ async def generate_leaderboard_embed(bot: commands.Bot, guild: discord.Guild, ga
     if not rows:
         return None, f"Chưa có ai trên BXH Nối Từ ({game_lang_name}) của server **{guild_name_escaped}**!"
 
-    embed = discord.Embed(title=f"🏆 BXH Nối Từ ({game_lang_name}) - {guild_name_escaped} 🏆", color=discord.Color.gold())
-    desc = ""
+    embed = discord.Embed(title=f"{bot_cfg.LEADERBOARD_ICON} BXH Nối Từ ({game_lang_name})", color=bot_cfg.EMBED_COLOR_LEADERBOARD)
+    if guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+    
+    desc_parts = []
     emojis = ["🥇", "🥈", "🥉"] 
     for i, s_dict in enumerate(rows):
         s = dict(s_dict) 
         rank_display = emojis[i] if i < len(emojis) else f"**{i+1}.**"
-        streak_info = f" (Hiện tại: {s['current_win_streak']})" if s['current_win_streak'] > 0 else ""
+        
+        player_name_escaped = discord.utils.escape_markdown(s['name'])
+        if len(player_name_escaped) > 25: player_name_escaped = player_name_escaped[:22] + "..." 
+
+        streak_info = f" (Hiện tại: **{s['current_win_streak']}** 🔥)" if s['current_win_streak'] > 0 else ""
         
         total_errors = s.get("wrong_word_link",0) + s.get("invalid_wiktionary",0) + s.get("used_word_error",0)
         if game_language == "JP":
             total_errors += s.get("lost_by_n_ending", 0)
         
-        player_name = s['name']
-        if len(player_name) > 25: player_name = player_name[:22] + "..." 
+        player_entry = (
+            f"{rank_display} **{player_name_escaped}**\n"
+            f"   🏅 Thắng: `{s['wins']}` | ✅ Lượt đúng: `{s['correct_moves']}`\n"
+            f"   🏆 Chuỗi thắng max: `{s['max_win_streak']}`{streak_info}\n"
+            f"   ⚠️ Lỗi (tổng): `{total_errors}` | ⏰ Sai lượt: `{s['wrong_turn']}`"
+        )
+        desc_parts.append(player_entry)
 
-        desc += (f"{rank_display} **{discord.utils.escape_markdown(player_name)}**\n"
-                 f"   🏅 Thắng: `{s['wins']}` | ✅ Lượt đúng: `{s['correct_moves']}`\n"
-                 f"   🔥 Chuỗi max: `{s['max_win_streak']}`{streak_info}\n"
-                 f"   ⚠️ Lỗi (gộp): `{total_errors}` | ⏰ Sai lượt: `{s['wrong_turn']}`\n\n") # 'Lỗi (gộp)'
-
-    embed.description = desc.strip()
-    embed.set_footer(text=f"BXH ({game_lang_name}): Thắng > Lượt đúng > Chuỗi max > Chuỗi hiện tại > Ít lỗi > Tên.")
+    embed.description = "\n\n".join(desc_parts) # Thêm khoảng cách giữa các entry
+    embed.set_footer(text=f"Server: {guild.name} | Sắp xếp: Thắng > Lượt đúng > Chuỗi max > ...")
     return embed, None
+
+async def send_random_guild_emoji_if_any(channel: discord.TextChannel, guild: discord.Guild):
+    """Gửi một emoji ngẫu nhiên từ server vào kênh (nếu có)."""
+    if guild and guild.emojis:
+        available_emojis = list(guild.emojis) # Lấy tất cả emojis
+        if available_emojis:
+            try:
+                random_emoji = random.choice(available_emojis)
+                await channel.send(str(random_emoji))
+            except discord.HTTPException as e:
+                print(f"Lỗi gửi random emoji vào kênh {channel.id} của guild {guild.id}: {e}")
+            except Exception as e_rand:
+                print(f"Lỗi không xác định khi chọn/gửi random emoji: {e_rand}")
