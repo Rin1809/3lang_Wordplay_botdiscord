@@ -1,7 +1,7 @@
 # Noitu/game/logic.py
 import discord
 from discord.ext import commands
-import random # Đảm bảo import random
+import random 
 import asyncio
 import traceback
 
@@ -155,7 +155,6 @@ async def check_game_timeout(bot: commands.Bot, channel_id: int, guild_id: int, 
                 msg_with_view = await message_channel.send(embed=win_embed, view=view)
                 if msg_with_view: view.message_to_edit = msg_with_view 
 
-                # Gửi emoji ngẫu nhiên
                 if message_channel.guild:
                     await utils.send_random_guild_emoji_if_any(message_channel, message_channel.guild)
 
@@ -369,7 +368,7 @@ async def internal_start_game(bot: commands.Bot, channel: discord.TextChannel, a
 
     game_state = bot.active_games[channel.id]
 
-    if game_state["timeout_can_be_activated"] and player_id_for_first_move != bot.user.id:
+    if game_state["timeout_can_be_activated"] and player_id_for_first_move != bot.user.id: # Chỉ bắt đầu timeout nếu user bắt đầu và đủ người
         new_timeout_task = asyncio.create_task(
             check_game_timeout(
                 bot, channel.id, guild_id,
@@ -379,14 +378,7 @@ async def internal_start_game(bot: commands.Bot, channel: discord.TextChannel, a
             )
         )
         game_state["timeout_task"] = new_timeout_task
-        if channel:
-            try: 
-                await channel.send(
-                    f"ℹ️ Đã có {len(game_state['participants_since_start'])} người chơi (tối thiểu: {min_p}). "
-                    f"Thời gian chờ {timeout_s} giây cho mỗi lượt sẽ được áp dụng.",
-                    delete_after=20
-                )
-            except discord.HTTPException: pass
+        # Ko cần thông báo lại timeout ở đây vì check_game_timeout sẽ làm
 
 
 async def internal_stop_game(bot: commands.Bot, channel: discord.TextChannel, author: discord.User | discord.Member,
@@ -439,7 +431,6 @@ async def internal_stop_game(bot: commands.Bot, channel: discord.TextChannel, au
         
         if msg_to_set_view: 
             view.message_to_edit = msg_to_set_view
-            # Gửi emoji ngẫu nhiên
             if channel.guild:
                 await utils.send_random_guild_emoji_if_any(channel, channel.guild)
 
@@ -466,7 +457,7 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
     game_lang = game_state.get("game_language", "VN").upper() 
 
     if game_lang == "JP" and not bot.kakasi: 
-        print(f"WARNING: Kakasi không sẵn sàng cho game JP ở kênh {channel_id}, game {game_state.get('game_language')}")
+        print(f"WARNING: Kakasi ko sẵn sàng cho game JP ở kênh {channel_id}, game {game_state.get('game_language')}")
         return
 
     if game_state.get("guild_id") != guild_id:
@@ -494,8 +485,8 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
     user_input_original_str = message.content.strip()
     if not user_input_original_str: return 
 
-    phrase_to_validate: str = ""
-    display_form_for_current_move: str = user_input_original_str
+    phrase_to_validate: str = "" # Sẽ là hira_form cho JP, hoặc lower phrase cho VN
+    display_form_for_current_move: str = user_input_original_str # Giữ nguyên input ban đầu để hiển thị
     
     expected_first_char_or_word = game_state["word_to_match_next"] 
 
@@ -504,11 +495,11 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
 
     if game_lang == "VN":
         user_phrase_words_lower = utils.get_words_from_input(user_input_original_str)
-        if len(user_phrase_words_lower) != 2: return 
+        if len(user_phrase_words_lower) != 2: return # Bỏ qua nếu ko phải 2 từ (chat thường)
 
         word1_user, word2_user = user_phrase_words_lower[0], user_phrase_words_lower[1]
         phrase_to_validate = f"{word1_user} {word2_user}"
-        display_form_for_current_move = " ".join(w.capitalize() for w in user_phrase_words_lower)
+        display_form_for_current_move = " ".join(w.capitalize() for w in user_phrase_words_lower) # Chuẩn hóa hiển thị
 
         if word1_user != expected_first_char_or_word:
             error_occurred = True; error_type_for_stat = "wrong_word_link"
@@ -522,14 +513,23 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
         is_valid_jp, hira_form_jp = await wiktionary_api.is_japanese_word_valid_api(
             user_input_original_str, bot.http_session, bot.wiktionary_cache_jp, bot.local_dictionary_jp, bot.kakasi
         )
-        if not is_valid_jp or not hira_form_jp:
-            error_occurred = True; error_type_for_stat = "invalid_wiktionary"
-        else:
-            phrase_to_validate = hira_form_jp 
-            first_char_current_hira = utils.get_first_hiragana_char(hira_form_jp)
-            if not first_char_current_hira or first_char_current_hira != expected_first_char_or_word:
-                error_occurred = True; error_type_for_stat = "wrong_word_link"
+        
+        if not is_valid_jp:
+            if hira_form_jp is None: # (False, None) -> input rất có thể ko phải JP (chat thường, emoji)
+                return # Bỏ qua lặng lẽ
+            else: # (False, "some_hira") -> input là JP nhưng ko hợp lệ (vd: んんん, hoặc ko có trong dict)
+                error_occurred = True
+                error_type_for_stat = "invalid_wiktionary" # Sẽ được xử lý ở cuối
+        else: # is_valid_jp is True, hira_form_jp phải là một chuỗi
+            phrase_to_validate = hira_form_jp # Dùng hira_form để validate logic game
             
+            # Ktra nối âm trước
+            first_char_current_hira = utils.get_first_hiragana_char(phrase_to_validate)
+            if not first_char_current_hira or first_char_current_hira != expected_first_char_or_word:
+                error_occurred = True
+                error_type_for_stat = "wrong_word_link"
+            
+            # Ktra luật 'ん' (chỉ khi chưa có lỗi nối âm)
             if not error_occurred and phrase_to_validate.endswith('ん'):
                 try: await message.add_reaction(bot_cfg.SHIRITORI_LOSS_REACTION)
                 except (discord.Forbidden, discord.HTTPException): pass
@@ -545,9 +545,7 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
 
                 loss_embed = discord.Embed(color=bot_cfg.EMBED_COLOR_LOSS)
                 original_starter_for_view = winner_id
-                game_lang_display = f"{bot_cfg.GAME_VN_ICON} Tiếng Việt" if game_lang == "VN" else f"{bot_cfg.GAME_JP_ICON} Tiếng Nhật"
-
-
+                
                 if winner_id == bot.user.id: 
                     loss_embed.title = f"{bot_cfg.PLAYER_LOSS_ICON} {message.author.name} Thua Cuộc! {bot_cfg.PLAYER_LOSS_ICON}"
                     loss_embed.description = (
@@ -600,18 +598,18 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
                 msg_with_view = await message.channel.send(embed=loss_embed, view=view)
                 if msg_with_view : 
                     view.message_to_edit = msg_with_view
-                    # Gửi emoji ngẫu nhiên
                     if message.guild:
                        await utils.send_random_guild_emoji_if_any(message.channel, message.guild)
 
-
                 if channel_id in bot.active_games: 
                     del bot.active_games[channel_id]
-                return 
+                return # Game kết thúc do luật 'ん'
 
+    # Ktra từ đã dùng (chung cho VN và JP, nếu chưa có lỗi nào khác)
     if not error_occurred and phrase_to_validate in game_state["used_phrases"]:
         error_occurred = True; error_type_for_stat = "used_word_error"
 
+    # Xử lý lỗi chung nếu có
     if error_occurred: 
         try: await message.add_reaction(bot_cfg.ERROR_REACTION)
         except (discord.Forbidden, discord.HTTPException): pass
@@ -619,6 +617,7 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
             await database.update_stat(bot.db_pool, bot.user.id, current_player_id, guild_id, error_type_for_stat, current_player_name, game_language=game_lang)
         return
 
+    # Nếu ko có lỗi nào -> lượt đi đúng
     try: await message.add_reaction(bot_cfg.CORRECT_REACTION)
     except (discord.Forbidden, discord.HTTPException): pass
     await database.update_stat(bot.db_pool, bot.user.id, current_player_id, guild_id, "correct_moves", current_player_name, game_language=game_lang)
@@ -626,8 +625,8 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
     if "timeout_task" in game_state and game_state["timeout_task"] and not game_state["timeout_task"].done():
         game_state["timeout_task"].cancel()
 
-    game_state["current_phrase_str"] = phrase_to_validate 
-    game_state["current_phrase_display_form"] = display_form_for_current_move 
+    game_state["current_phrase_str"] = phrase_to_validate # phrase_to_validate là hira_form (JP) hoặc lower phrase (VN)
+    game_state["current_phrase_display_form"] = display_form_for_current_move # input gốc của user
 
     if game_lang == "VN":
         game_state["word_to_match_next"] = phrase_to_validate.split()[1]
@@ -636,6 +635,7 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
         if not last_hira_char_of_current: 
             print(f"LỖI NGHIÊM TRỌNG: Không thể lấy ký tự cuối của từ JP hợp lệ: {phrase_to_validate}")
             await message.channel.send(f"⚠️ Bot gặp lỗi xử lý từ \"{display_form_for_current_move}\". Lượt này có thể không được tính đúng.")
+            # Có thể reset game ở đây nếu lỗi quá nghiêm trọng
         else:
             game_state["word_to_match_next"] = last_hira_char_of_current
 
