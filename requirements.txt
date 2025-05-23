@@ -1,0 +1,6 @@
+aiohttp
+asyncpg
+discord.py
+python-dotenv
+PyNaCl
+pykakasi
