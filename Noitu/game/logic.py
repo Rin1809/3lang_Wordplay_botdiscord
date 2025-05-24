@@ -249,20 +249,36 @@ async def internal_start_game(bot: commands.Bot, channel: discord.TextChannel, a
         player_id_for_first_move = bot.user.id # Bot starts
         if game_lang_for_channel == "VN":
             game_author_name = f"{bot_cfg.GAME_VN_ICON} Nối Từ Tiếng Việt"
-            possible_starts_vn = ["ấm áp", "bầu trời", "dòng sông", "cây cầu", "máy tính", "điện thoại", "học sinh", "sinh viên", "viên phấn", "nhà cửa", "cơm nước", "xe cộ", "tình yêu", "hạnh phúc", "nỗi buồn", "áo quần", "quần đảo", "đảo xa"]
-            random.shuffle(possible_starts_vn)
             chosen_start_phrase_vn = ""
-            for phrase_attempt in possible_starts_vn:
-                if await wiktionary_api.is_vietnamese_phrase_or_word_valid_api(
-                    phrase_attempt, bot.http_session, bot.wiktionary_cache_vn, bot.local_dictionary_vn
-                ):
-                    chosen_start_phrase_vn = phrase_attempt
-                    break
-            if not chosen_start_phrase_vn:
-                await send_response("⚠️ Bot không tìm được từ bắt đầu Tiếng Việt ngẫu nhiên hợp lệ."); return
+            
+            if bot.local_dictionary_vn:
+                two_word_phrases_vn = [
+                    phrase for phrase in list(bot.local_dictionary_vn) # Chuyển set -> list để shuffle
+                    if len(phrase.split()) == 2
+                ]
+                if two_word_phrases_vn: # Kiểm tra nếu có cụm 2 chữ
+                    random.shuffle(two_word_phrases_vn)
+                    # Không check Wiktionary lại nếu từ điển local được coi là đáng tin
+                    chosen_start_phrase_vn = two_word_phrases_vn[0] 
+            
+            if not chosen_start_phrase_vn: # Fallback nếu ko tìm đc từ file hoặc file rỗng/ko có cụm 2 từ
+                possible_starts_vn_fallback = ["bầu trời", "dòng sông", "học sinh", "sinh viên", "nhà cửa", "tình yêu", "hạnh phúc"]
+                random.shuffle(possible_starts_vn_fallback)
+                for phrase_attempt_fallback in possible_starts_vn_fallback:
+                     if await wiktionary_api.is_vietnamese_phrase_or_word_valid_api(
+                        phrase_attempt_fallback, bot.http_session, bot.wiktionary_cache_vn, bot.local_dictionary_vn
+                    ):
+                        chosen_start_phrase_vn = phrase_attempt_fallback
+                        break
+            
+            if not chosen_start_phrase_vn: # Nếu cả file và fallback đều không được
+                await send_response("⚠️ Bot không tìm được từ bắt đầu Tiếng Việt ngẫu nhiên hợp lệ từ từ điển."); return
 
-            current_phrase_str = chosen_start_phrase_vn
+            current_phrase_str = chosen_start_phrase_vn.lower() 
             current_phrase_words = current_phrase_str.split()
+            if len(current_phrase_words) != 2: 
+                await send_response("⚠️ Bot chọn từ bắt đầu không hợp lệ (không phải 2 chữ). Vui lòng thử lại."); return
+
             word_to_match_next = current_phrase_words[1]
             current_phrase_display_form = " ".join(word.capitalize() for word in current_phrase_words)
             game_start_embed.description = f"{bot_cfg.BOT_PLAYER_START_EMOJI} Bot đã chọn: **{current_phrase_display_form}**\n\n🔗 Tiếp theo: **{word_to_match_next.capitalize()}**"
@@ -276,20 +292,20 @@ async def internal_start_game(bot: commands.Bot, channel: discord.TextChannel, a
                 entry for entry in bot.local_dictionary_jp
                 if entry.get('hira') and not entry['hira'].endswith('ん')
             ]
-            if not valid_jp_starts:
+            if not valid_jp_starts: # Nếu ko có từ ko kết thúc bằng 'ん', lấy bất kỳ từ nào
                 valid_jp_starts = [entry for entry in bot.local_dictionary_jp if entry.get('hira')]
 
             if not valid_jp_starts:
-                 await send_response("⚠️ Bot không tìm được từ Tiếng Nhật ngẫu nhiên hợp lệ."); return
+                 await send_response("⚠️ Bot không tìm được từ Tiếng Nhật ngẫu nhiên hợp lệ từ từ điển."); return
 
             chosen_entry = random.choice(valid_jp_starts)
             current_phrase_str = chosen_entry['hira']
             current_phrase_display_form = chosen_entry.get('kanji', current_phrase_str)
 
-            last_hira_char = utils.get_last_hiragana_char(current_phrase_str)
-            if not last_hira_char:
+            linking_mora_jp = utils.get_shiritori_linking_mora_from_previous_word(current_phrase_str)
+            if not linking_mora_jp:
                 await send_response("⚠️ Lỗi xử lý từ bắt đầu Tiếng Nhật của Bot."); return
-            word_to_match_next = last_hira_char
+            word_to_match_next = linking_mora_jp
             game_start_embed.description = f"{bot_cfg.BOT_PLAYER_START_EMOJI} Bot đã chọn: **{current_phrase_display_form}** (`{current_phrase_str}`)\n\n🔗 Tiếp theo: **{word_to_match_next}**"
 
     else: # User provided start_phrase_input
@@ -328,10 +344,10 @@ async def internal_start_game(bot: commands.Bot, channel: discord.TextChannel, a
             current_phrase_str = hira_form_jp
             current_phrase_display_form = start_phrase_input_cleaned
 
-            last_hira_char = utils.get_last_hiragana_char(current_phrase_str)
-            if not last_hira_char:
+            linking_mora_jp = utils.get_shiritori_linking_mora_from_previous_word(current_phrase_str)
+            if not linking_mora_jp:
                 await send_response(f"⚠️ Lỗi xử lý từ \"**{start_phrase_input_cleaned}**\"."); return
-            word_to_match_next = last_hira_char
+            word_to_match_next = linking_mora_jp
             game_start_embed.description = f"{bot_cfg.USER_PLAYER_START_EMOJI} {author.mention} bắt đầu với: **{current_phrase_display_form}** (`{current_phrase_str}`)\n\n🔗 Tiếp theo: **{word_to_match_next}**"
 
         if player_id_for_first_move != bot.user.id:
@@ -368,7 +384,7 @@ async def internal_start_game(bot: commands.Bot, channel: discord.TextChannel, a
 
     game_state = bot.active_games[channel.id]
 
-    if game_state["timeout_can_be_activated"] and player_id_for_first_move != bot.user.id: # Chỉ bắt đầu timeout nếu user bắt đầu và đủ người
+    if game_state["timeout_can_be_activated"] and player_id_for_first_move != bot.user.id:
         new_timeout_task = asyncio.create_task(
             check_game_timeout(
                 bot, channel.id, guild_id,
@@ -378,7 +394,6 @@ async def internal_start_game(bot: commands.Bot, channel: discord.TextChannel, a
             )
         )
         game_state["timeout_task"] = new_timeout_task
-        # Ko cần thông báo lại timeout ở đây vì check_game_timeout sẽ làm
 
 
 async def internal_stop_game(bot: commands.Bot, channel: discord.TextChannel, author: discord.User | discord.Member,
@@ -467,24 +482,22 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
         del bot.active_games[channel_id]
         return
 
-    # --- BEGIN MOVED BLOCK AND MODIFICATION ---
     user_input_original_str = message.content.strip()
     if not user_input_original_str: return
 
-    phrase_to_validate: str = "" # Sẽ là hira_form cho JP, hoặc lower phrase cho VN
-    display_form_for_current_move: str = user_input_original_str # Giữ nguyên input ban đầu để hiển thị
+    phrase_to_validate: str = ""
+    display_form_for_current_move: str = user_input_original_str
 
-    expected_first_char_or_word = game_state["word_to_match_next"]
+    expected_linking_mora = game_state["word_to_match_next"] # Đổi tên biến cho rõ ràng
 
     error_occurred = False
     error_type_for_stat = None
 
     if game_lang == "VN":
         user_phrase_words_lower = utils.get_words_from_input(user_input_original_str)
-        if len(user_phrase_words_lower) != 2: # Bỏ qua nếu ko phải 2 từ (chat thường)
+        if len(user_phrase_words_lower) != 2:
             return
 
-        # Check for wrong turn AFTER confirming it's a 2-word phrase (potential move)
         if current_player_id == game_state["last_player_id"]:
             try:
                 await message.add_reaction(bot_cfg.WRONG_TURN_REACTION)
@@ -502,9 +515,9 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
 
         word1_user, word2_user = user_phrase_words_lower[0], user_phrase_words_lower[1]
         phrase_to_validate = f"{word1_user} {word2_user}"
-        display_form_for_current_move = " ".join(w.capitalize() for w in user_phrase_words_lower) # Chuẩn hóa hiển thị
+        display_form_for_current_move = " ".join(w.capitalize() for w in user_phrase_words_lower)
 
-        if word1_user != expected_first_char_or_word:
+        if word1_user != expected_linking_mora: # So sánh với âm tiết nối mong đợi
             error_occurred = True; error_type_for_stat = "wrong_word_link"
 
         if not error_occurred and not await wiktionary_api.is_vietnamese_phrase_or_word_valid_api(
@@ -517,10 +530,9 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
             user_input_original_str, bot.http_session, bot.wiktionary_cache_jp, bot.local_dictionary_jp, bot.kakasi
         )
 
-        if not is_valid_jp:
-            if hira_form_jp is None: # (False, None) -> input rất có thể ko phải JP (chat thường, emoji)
-                return
-            
+        if hira_form_jp is None and not is_valid_jp:
+            return
+
         if current_player_id == game_state["last_player_id"]:
             try:
                 await message.add_reaction(bot_cfg.WRONG_TURN_REACTION)
@@ -535,103 +547,101 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
                 await database.update_stat(bot.db_pool, bot.user.id, current_player_id, guild_id, "wrong_turn", current_player_name, game_language=game_lang)
             except (discord.Forbidden, discord.HTTPException): pass
             return
-        
-        if not is_valid_jp and hira_form_jp is not None: 
+
+        if not is_valid_jp:
              error_occurred = True
              error_type_for_stat = "invalid_wiktionary"
-        
-        if not error_occurred and is_valid_jp: 
-            phrase_to_validate = hira_form_jp # Dùng hira_form để validate logic game
 
-            # Ktra nối âm trước
-            first_char_current_hira = utils.get_first_hiragana_char(phrase_to_validate)
-            if not first_char_current_hira or first_char_current_hira != expected_first_char_or_word:
-                error_occurred = True
-                error_type_for_stat = "wrong_word_link"
+        if not error_occurred and is_valid_jp:
+            if not hira_form_jp:
+                print(f"LOGIC_ERROR: is_valid_jp=True nhưng hira_form_jp is None cho input '{user_input_original_str}'")
+                error_occurred = True; error_type_for_stat = "internal_error"
+            else:
+                phrase_to_validate = hira_form_jp
 
-            # Ktra luật 'ん' (chỉ khi chưa có lỗi nối âm)
-            if not error_occurred and phrase_to_validate.endswith('ん'):
-                try: await message.add_reaction(bot_cfg.SHIRITORI_LOSS_REACTION)
-                except (discord.Forbidden, discord.HTTPException): pass
+                first_mora_current = utils.get_first_mora_of_current_word(phrase_to_validate)
+                if not first_mora_current or first_mora_current != expected_linking_mora:
+                    error_occurred = True
+                    error_type_for_stat = "wrong_word_link"
 
-                if "timeout_task" in game_state and game_state["timeout_task"] and not game_state["timeout_task"].done():
-                    game_state["timeout_task"].cancel()
+                if not error_occurred and phrase_to_validate.endswith('ん'):
+                    try: await message.add_reaction(bot_cfg.SHIRITORI_LOSS_REACTION)
+                    except (discord.Forbidden, discord.HTTPException): pass
 
-                winner_id = game_state["last_player_id"]
-                loser_id = current_player_id
+                    if "timeout_task" in game_state and game_state["timeout_task"] and not game_state["timeout_task"].done():
+                        game_state["timeout_task"].cancel()
 
-                await database.update_stat(bot.db_pool, bot.user.id, loser_id, guild_id, "lost_by_n_ending", current_player_name, game_language=game_lang)
-                await database.reset_win_streak_for_user(bot.db_pool, loser_id, guild_id, game_language=game_lang)
+                    winner_id = game_state["last_player_id"]
+                    loser_id = current_player_id
 
-                loss_embed = discord.Embed(color=bot_cfg.EMBED_COLOR_LOSS)
-                original_starter_for_view = winner_id
+                    await database.update_stat(bot.db_pool, bot.user.id, loser_id, guild_id, "lost_by_n_ending", current_player_name, game_language=game_lang)
+                    await database.reset_win_streak_for_user(bot.db_pool, loser_id, guild_id, game_language=game_lang)
 
-                if winner_id == bot.user.id:
-                    loss_embed.title = f"{bot_cfg.PLAYER_LOSS_ICON} {message.author.name} Thua Cuộc! {bot_cfg.PLAYER_LOSS_ICON}"
-                    loss_embed.description = (
-                        f"{message.author.mention} đã dùng từ \"**{display_form_for_current_move}**\" (`{phrase_to_validate}`) kết thúc bằng 'ん'!\n"
-                        f"Theo luật Shiritori, {bot_cfg.BOT_PLAYER_START_EMOJI} Bot (người chơi trước) chiến thắng!"
-                    )
-                    if bot.user.display_avatar: loss_embed.set_thumbnail(url=bot.user.display_avatar.url)
-                else:
-                    try:
-                        winner_user = await bot.fetch_user(winner_id)
-                        winner_name_display = winner_user.name
+                    loss_embed = discord.Embed(color=bot_cfg.EMBED_COLOR_LOSS)
+                    original_starter_for_view = winner_id
 
-                        await database.update_stat(bot.db_pool, bot.user.id, winner_id, guild_id, "wins", winner_name_display, game_language=game_lang)
-
-                        loss_embed.title = f"{bot_cfg.SHIRITORI_LOSS_WIN_ICON} Chúc Mừng {discord.utils.escape_markdown(winner_name_display)}! {bot_cfg.SHIRITORI_LOSS_WIN_ICON}"
+                    if winner_id == bot.user.id:
+                        loss_embed.title = f"{bot_cfg.PLAYER_LOSS_ICON} {message.author.name} Thua Cuộc! {bot_cfg.PLAYER_LOSS_ICON}"
                         loss_embed.description = (
-                            f"{bot_cfg.USER_PLAYER_START_EMOJI} {message.author.mention} đã dùng từ \"**{display_form_for_current_move}**\" (`{phrase_to_validate}`) kết thúc bằng 'ん'.\n"
-                            f"Theo luật Shiritori, {bot_cfg.USER_PLAYER_START_EMOJI} {winner_user.mention} (người chơi trước) chiến thắng!"
+                            f"{message.author.mention} đã dùng từ \"**{display_form_for_current_move}**\" (`{phrase_to_validate}`) kết thúc bằng 'ん'!\n"
+                            f"Theo luật Shiritori, {bot_cfg.BOT_PLAYER_START_EMOJI} Bot (người chơi trước) chiến thắng!"
                         )
-                        if winner_user.display_avatar: loss_embed.set_thumbnail(url=winner_user.display_avatar.url)
+                        if bot.user.display_avatar: loss_embed.set_thumbnail(url=bot.user.display_avatar.url)
+                    else:
+                        try:
+                            winner_user = await bot.fetch_user(winner_id)
+                            winner_name_display = winner_user.name
 
-                        user_stats = await database.get_user_stats_entry(bot.db_pool, winner_id, guild_id, game_lang, winner_name_display)
-                        if user_stats:
-                             stats_text = (
-                                 f"🏅 Tổng thắng: **{user_stats['wins']}**\n"
-                                 f"🔥 Chuỗi thắng hiện tại: **{user_stats['current_win_streak']}** (Max: **{user_stats['max_win_streak']}**)"
-                             )
-                             loss_embed.add_field(name="Thành Tích Người Thắng", value=stats_text, inline=False)
+                            await database.update_stat(bot.db_pool, bot.user.id, winner_id, guild_id, "wins", winner_name_display, game_language=game_lang)
 
-                    except discord.NotFound:
-                        await database.update_stat(bot.db_pool, bot.user.id, winner_id, guild_id, "wins", f"User ID {winner_id}", game_language=game_lang)
-                        loss_embed.title = f"{bot_cfg.SHIRITORI_LOSS_WIN_ICON} Người Chơi ID {winner_id} Thắng Cuộc! {bot_cfg.SHIRITORI_LOSS_WIN_ICON}"
-                        loss_embed.description = f"{bot_cfg.USER_PLAYER_START_EMOJI} {message.author.mention} thua do dùng từ \"**{display_form_for_current_move}**\" (`{phrase_to_validate}`) kết thúc bằng 'ん'."
-                    except discord.HTTPException:
-                        await database.update_stat(bot.db_pool, bot.user.id, winner_id, guild_id, "wins", f"User ID {winner_id} (API Err)", game_language=game_lang)
-                        loss_embed.title = f"{bot_cfg.SHIRITORI_LOSS_WIN_ICON} Một Người Chơi Thắng! {bot_cfg.SHIRITORI_LOSS_WIN_ICON}"
-                        loss_embed.description = f"{bot_cfg.USER_PLAYER_START_EMOJI} {message.author.mention} thua do dùng từ \"**{display_form_for_current_move}**\" (`{phrase_to_validate}`) kết thúc bằng 'ん'. (Lỗi lấy thông tin người thắng)."
+                            loss_embed.title = f"{bot_cfg.SHIRITORI_LOSS_WIN_ICON} Chúc Mừng {discord.utils.escape_markdown(winner_name_display)}! {bot_cfg.SHIRITORI_LOSS_WIN_ICON}"
+                            loss_embed.description = (
+                                f"{bot_cfg.USER_PLAYER_START_EMOJI} {message.author.mention} đã dùng từ \"**{display_form_for_current_move}**\" (`{phrase_to_validate}`) kết thúc bằng 'ん'.\n"
+                                f"Theo luật Shiritori, {bot_cfg.USER_PLAYER_START_EMOJI} {winner_user.mention} (người chơi trước) chiến thắng!"
+                            )
+                            if winner_user.display_avatar: loss_embed.set_thumbnail(url=winner_user.display_avatar.url)
 
-                loss_embed.set_footer(text=f"Luật 'ん' Shiritori | Kênh: #{message.channel.name}")
-                guild_cfg_for_prefix = await database.get_guild_config(bot.db_pool, guild_id)
-                command_prefix_for_guild = guild_cfg_for_prefix.get("command_prefix", bot_cfg.DEFAULT_COMMAND_PREFIX) if guild_cfg_for_prefix else bot_cfg.DEFAULT_COMMAND_PREFIX
+                            user_stats_db = await database.get_user_stats_entry(bot.db_pool, winner_id, guild_id, game_lang, winner_name_display)
+                            if user_stats_db:
+                                 stats_text = (
+                                     f"🏅 Tổng thắng: **{user_stats_db['wins']}**\n"
+                                     f"🔥 Chuỗi thắng hiện tại: **{user_stats_db['current_win_streak']}** (Max: **{user_stats_db['max_win_streak']}**)"
+                                 )
+                                 loss_embed.add_field(name="Thành Tích Người Thắng", value=stats_text, inline=False)
 
-                view = PostGameView(
-                    channel=message.channel,
-                    original_starter_id=original_starter_for_view,
-                    command_prefix_for_guild=command_prefix_for_guild,
-                    bot_instance=bot,
-                    internal_start_game_callable=internal_start_game
-                )
-                msg_with_view = await message.channel.send(embed=loss_embed, view=view)
-                if msg_with_view :
-                    view.message_to_edit = msg_with_view
-                    if message.guild:
-                       await utils.send_random_guild_emoji_if_any(message.channel, message.guild)
+                        except discord.NotFound:
+                            await database.update_stat(bot.db_pool, bot.user.id, winner_id, guild_id, "wins", f"User ID {winner_id}", game_language=game_lang)
+                            loss_embed.title = f"{bot_cfg.SHIRITORI_LOSS_WIN_ICON} Người Chơi ID {winner_id} Thắng Cuộc! {bot_cfg.SHIRITORI_LOSS_WIN_ICON}"
+                            loss_embed.description = f"{bot_cfg.USER_PLAYER_START_EMOJI} {message.author.mention} thua do dùng từ \"**{display_form_for_current_move}**\" (`{phrase_to_validate}`) kết thúc bằng 'ん'."
+                        except discord.HTTPException:
+                            await database.update_stat(bot.db_pool, bot.user.id, winner_id, guild_id, "wins", f"User ID {winner_id} (API Err)", game_language=game_lang)
+                            loss_embed.title = f"{bot_cfg.SHIRITORI_LOSS_WIN_ICON} Một Người Chơi Thắng! {bot_cfg.SHIRITORI_LOSS_WIN_ICON}"
+                            loss_embed.description = f"{bot_cfg.USER_PLAYER_START_EMOJI} {message.author.mention} thua do dùng từ \"**{display_form_for_current_move}**\" (`{phrase_to_validate}`) kết thúc bằng 'ん'. (Lỗi lấy thông tin người thắng)."
 
-                if channel_id in bot.active_games:
-                    del bot.active_games[channel_id]
-                return # Game kết thúc do luật 'ん'
-    # --- END MOVED BLOCK AND MODIFICATION ---
+                    loss_embed.set_footer(text=f"Luật 'ん' Shiritori | Kênh: #{message.channel.name}")
+                    guild_cfg_for_prefix_db = await database.get_guild_config(bot.db_pool, guild_id)
+                    command_prefix_for_guild_val = guild_cfg_for_prefix_db.get("command_prefix", bot_cfg.DEFAULT_COMMAND_PREFIX) if guild_cfg_for_prefix_db else bot_cfg.DEFAULT_COMMAND_PREFIX
 
+                    view_instance = PostGameView(
+                        channel=message.channel,
+                        original_starter_id=original_starter_for_view,
+                        command_prefix_for_guild=command_prefix_for_guild_val,
+                        bot_instance=bot,
+                        internal_start_game_callable=internal_start_game
+                    )
+                    msg_with_view_instance = await message.channel.send(embed=loss_embed, view=view_instance)
+                    if msg_with_view_instance :
+                        view_instance.message_to_edit = msg_with_view_instance
+                        if message.guild:
+                           await utils.send_random_guild_emoji_if_any(message.channel, message.guild)
 
-    # Ktra từ đã dùng (chung cho VN và JP, nếu chưa có lỗi nào khác)
+                    if channel_id in bot.active_games:
+                        del bot.active_games[channel_id]
+                    return
+
     if not error_occurred and phrase_to_validate and phrase_to_validate in game_state["used_phrases"]:
         error_occurred = True; error_type_for_stat = "used_word_error"
 
-    # Xử lý lỗi chung nếu có
     if error_occurred:
         try: await message.add_reaction(bot_cfg.ERROR_REACTION)
         except (discord.Forbidden, discord.HTTPException): pass
@@ -639,12 +649,12 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
             await database.update_stat(bot.db_pool, bot.user.id, current_player_id, guild_id, error_type_for_stat, current_player_name, game_language=game_lang)
         return
 
-    # Nếu ko có lỗi nào -> lượt đi đúng
-    if not phrase_to_validate and game_lang == "JP": 
+    if not phrase_to_validate and game_lang == "JP":
         if hira_form_jp and is_valid_jp:
              phrase_to_validate = hira_form_jp
-        else: 
-            print(f"CRITICAL: phrase_to_validate is empty for a JP move that wasn't an error. Input: {user_input_original_str}, Hira: {hira_form_jp}, Valid: {is_valid_jp}")
+        else:
+            if not is_valid_jp: return
+            print(f"LOGIC_WARN: JP move, not error, but phrase_to_validate empty. Input: {user_input_original_str}, Hira: {hira_form_jp}, Valid: {is_valid_jp}")
             return
 
 
@@ -655,19 +665,19 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
     if "timeout_task" in game_state and game_state["timeout_task"] and not game_state["timeout_task"].done():
         game_state["timeout_task"].cancel()
 
-    game_state["current_phrase_str"] = phrase_to_validate # phrase_to_validate là hira_form (JP) hoặc lower phrase (VN)
-    game_state["current_phrase_display_form"] = display_form_for_current_move # input gốc của user
+    game_state["current_phrase_str"] = phrase_to_validate
+    game_state["current_phrase_display_form"] = display_form_for_current_move
 
     if game_lang == "VN":
         game_state["word_to_match_next"] = phrase_to_validate.split()[1]
     else: # JP
-        last_hira_char_of_current = utils.get_last_hiragana_char(phrase_to_validate)
-        if not last_hira_char_of_current:
-            print(f"LỖI NGHIÊM TRỌNG: Không thể lấy ký tự cuối của từ JP hợp lệ: {phrase_to_validate}")
+        linking_mora_jp_current = utils.get_shiritori_linking_mora_from_previous_word(phrase_to_validate)
+        if not linking_mora_jp_current:
+            print(f"LỖI NGHIÊM TRỌNG: Không thể lấy âm tiết nối của từ JP hợp lệ: {phrase_to_validate}")
             await message.channel.send(f"⚠️ Bot gặp lỗi xử lý từ \"{display_form_for_current_move}\". Lượt này có thể không được tính đúng.")
-
+            return
         else:
-            game_state["word_to_match_next"] = last_hira_char_of_current
+            game_state["word_to_match_next"] = linking_mora_jp_current
 
     game_state["used_phrases"].add(phrase_to_validate)
     game_state["last_player_id"] = current_player_id

@@ -1,28 +1,59 @@
 # Noitu/utils.py
 import discord
 from discord.ext import commands
-from discord.ui import View 
+from discord.ui import View
 import random
 
 from . import database
-from . import config as bot_cfg 
-from . import wiktionary_api 
+from . import config as bot_cfg
+from . import wiktionary_api
+
+# Ánh xạ hira nhỏ -> hira đầy đủ (dùng khi ký tự cuối không phải là phần của Yōon)
+HIRAGANA_SMALL_TO_FULL_MAP = {
+    'ぁ': 'あ', 'ぃ': 'い', 'ぅ': 'う', 'ぇ': 'え', 'ぉ': 'お',
+    'ゃ': 'や', 'ゅ': 'ゆ', 'ょ': 'よ', 'ゎ': 'わ',
+    'っ': 'つ', 
+}
+
+# Các hiragana có thể đứng trước ゃ, ゅ, ょ để tạo âm Yōon
+YŌON_BASES = "きしちにひみりぎじぢびぴ"
+YŌON_SMALLS = "ゃゅょ"
 
 def get_words_from_input(phrase_input: str) -> list[str]: # Dùng cho VN
     return [word.strip().lower() for word in phrase_input.strip().split() if word.strip()]
 
-def get_last_hiragana_char(hira_string: str) -> str | None:
+def get_shiritori_linking_mora_from_previous_word(hira_string: str) -> str | None: # Lấy âm tiết nối từ từ trước
     if not hira_string:
         return None
-    return hira_string[-1]
 
-def get_first_hiragana_char(hira_string: str) -> str | None:
+    if len(hira_string) >= 2:
+        second_last_char = hira_string[-2]
+        last_char = hira_string[-1]
+        # Ktra nếu 2 ký tự cuối tạo thành âm Yōon
+        if last_char in YŌON_SMALLS and second_last_char in YŌON_BASES:
+            return second_last_char + last_char # Vd: "しゃ" từ "いしゃ"
+    
+    # Nếu ko phải Yōon ở cuối, hoặc từ chỉ có 1 ký tự
+    last_char_final = hira_string[-1]
+    # Chuẩn hóa nếu là các ký tự nhỏ đơn lẻ như ぁ, っ
+    return HIRAGANA_SMALL_TO_FULL_MAP.get(last_char_final, last_char_final)
+
+def get_first_mora_of_current_word(hira_string: str) -> str | None: # Lấy âm tiết đầu của từ hiện tại
     if not hira_string:
         return None
+
+    if len(hira_string) >= 2:
+        first_char = hira_string[0]
+        second_char = hira_string[1]
+        # Ktra nếu 2 ký tự đầu tạo thành âm Yōon
+        if second_char in YŌON_SMALLS and first_char in YŌON_BASES:
+            return first_char + second_char # Vd: "しゃ" từ "しゃかい"
+            
+    # Nếu ko phải Yōon ở đầu, hoặc từ chỉ có 1 ký tự
     return hira_string[0]
 
-async def get_channel_game_settings(bot: commands.Bot, guild_id: int, channel_id: int): # Nhận bot instance và channel_id
-    """Lấy cài đặt game của guild và xác định ngôn ngữ cho kênh cụ thể."""
+
+async def get_channel_game_settings(bot: commands.Bot, guild_id: int, channel_id: int):
     game_lang_for_channel = None
     guild_cfg_data = None
 
@@ -41,52 +72,50 @@ async def get_channel_game_settings(bot: commands.Bot, guild_id: int, channel_id
         timeout = guild_cfg_data.get("timeout_seconds", bot_cfg.DEFAULT_TIMEOUT_SECONDS)
         min_players = guild_cfg_data.get("min_players_for_timeout", bot_cfg.DEFAULT_MIN_PLAYERS_FOR_TIMEOUT)
 
-    return timeout, min_players, game_lang_for_channel # Trả về game_lang_for_channel (có thể là None)
+    return timeout, min_players, game_lang_for_channel
 
 
 
 async def _send_message_smart(target: discord.Interaction | commands.Context, content=None, embed=None, view=None, ephemeral=False, delete_after=None):
-    """Gửi tin nhắn thông minh dựa trên context hoặc interaction."""
     original_message_response = None
     is_interaction_source = False
 
     if isinstance(target, discord.Interaction):
         is_interaction_source = True
     elif isinstance(target, commands.Context) and hasattr(target, 'interaction') and target.interaction:
-        target = target.interaction 
+        target = target.interaction
         is_interaction_source = True
 
-    send_kwargs = {} 
+    send_kwargs = {}
     if content is not None: send_kwargs['content'] = content
     if embed is not None: send_kwargs['embed'] = embed
     if view is not None and isinstance(view, View): send_kwargs['view'] = view
 
     if is_interaction_source:
-        if not isinstance(target, discord.Interaction): 
+        if not isinstance(target, discord.Interaction):
             print(f"Lỗi _send_message_smart: target tưởng là interaction nhưng ko. Type: {type(target)}")
             if hasattr(target, 'channel') and isinstance(target.channel, discord.TextChannel):
                 fallback_kwargs = send_kwargs.copy()
-                if delete_after is not None and not ephemeral: 
+                if delete_after is not None and not ephemeral:
                     fallback_kwargs['delete_after'] = delete_after
                 try:
                     return await target.channel.send(**fallback_kwargs)
                 except Exception as e_send:
                     print(f"Lỗi fallback send trong _send_message_smart: {e_send}")
-            return None # Quan trọng: trả về None nếu có lỗi
+            return None
 
         interaction_send_kwargs = send_kwargs.copy()
-        interaction_send_kwargs['ephemeral'] = ephemeral 
+        interaction_send_kwargs['ephemeral'] = ephemeral
 
         try:
-            if target.response.is_done(): 
-                interaction_send_kwargs['wait'] = True 
+            if target.response.is_done():
+                interaction_send_kwargs['wait'] = True
                 original_message_response = await target.followup.send(**interaction_send_kwargs)
-            else: 
+            else:
                 await target.response.send_message(**interaction_send_kwargs)
-                original_message_response = await target.original_response() 
+                original_message_response = await target.original_response()
         except discord.HTTPException as e:
             print(f"Lỗi HTTP khi gửi/followup tin nhắn interaction: {e}")
-            # Fallback to channel send if possible and not ephemeral
             if hasattr(target, 'channel') and isinstance(target.channel, discord.TextChannel) and not ephemeral:
                 try:
                     print("Thực hiện fallback send to channel.")
@@ -98,7 +127,7 @@ async def _send_message_smart(target: discord.Interaction | commands.Context, co
             return None
 
 
-    elif isinstance(target, commands.Context): 
+    elif isinstance(target, commands.Context):
         context_send_kwargs = send_kwargs.copy()
         if delete_after is not None: context_send_kwargs['delete_after'] = delete_after
         try:
@@ -110,11 +139,10 @@ async def _send_message_smart(target: discord.Interaction | commands.Context, co
         print(f"Lỗi _send_message_smart: Loại target ko xđ: {type(target)}")
         return None
 
-    return original_message_response 
+    return original_message_response
 
 
 async def generate_help_embed(bot: commands.Bot, guild: discord.Guild, current_prefix: str, channel_id: int):
-    """Tạo embed hướng dẫn, nhận channel_id để xác định ngôn ngữ."""
     if not guild: return None, "Lỗi: Không thể xác định server."
 
     timeout_s, min_p, game_lang = await get_channel_game_settings(bot, guild.id, channel_id)
@@ -127,7 +155,7 @@ async def generate_help_embed(bot: commands.Bot, guild: discord.Guild, current_p
 
     embed_title = f"{bot_cfg.HELP_ICON} Hướng dẫn chơi Nối Từ ({bot_cfg.GAME_VN_ICON} Tiếng Việt / {bot_cfg.GAME_JP_ICON} Tiếng Nhật)"
     embed_color = bot_cfg.EMBED_COLOR_HELP
-    
+
     embed = discord.Embed(title=embed_title, color=embed_color)
     if bot.user and bot.user.display_avatar:
         embed.set_thumbnail(url=bot.user.display_avatar.url)
@@ -152,20 +180,23 @@ async def generate_help_embed(bot: commands.Bot, guild: discord.Guild, current_p
         game_rules_details = (
             f"• Đưa ra một từ tiếng Nhật (Kanji, Hiragana, Katakana, Romaji).\n"
             f"• Từ phải có nghĩa và được từ điển/Wiktionary công nhận.\n"
-            f"• Âm tiết (Hiragana) cuối của từ trước phải là âm tiết đầu của từ sau (ví dụ: *さく**ら*** → ***ら**いおん*).\n"
+            f"• Âm tiết cuối của từ trước phải là âm tiết đầu của từ sau.\n"
+            f"  - Ví dụ: *さく**ら*** (sakura) → ***ら**いおん* (raion).\n"
+            f"  - Với âm ghép (Yōon) như *い**しゃ*** (isha), từ tiếp theo phải bắt đầu bằng **しゃ** (sha), ví dụ: ***しゃ**かい* (shakai).\n"
+            f"  - Từ kết thúc bằng âm ngắt (ví dụ: まっ**て**) thường nối bằng âm trước đó (**て**), nhưng bot hiện tại có thể nối bằng **つ** (do 'っ'). Trường âm (ー) có thể không được xử lý chính xác cho việc nối.\n"
             f"• **QUAN TRỌNG:** Từ kết thúc bằng âm 'ん' (n) sẽ khiến người chơi đó **THUA CUỘC** ngay lập tức!\n"
             f"• Sau khi có ít nhất **{min_p}** người chơi khác nhau tham gia, nếu sau **{timeout_s} giây** không ai nối được từ của bạn, bạn **thắng**!"
         )
         start_game_help_specific = f"`/start [từ tiếng Nhật]` hoặc `{current_prefix}start [từ tiếng Nhật]`."
-    
+
     embed.add_field(name=game_rules_title, value=game_rules_details, inline=False)
 
-    embed.add_field(name=f"{bot_cfg.GAME_START_ICON} Bắt đầu game", 
-                    value=f"{start_game_help_specific}\nNếu không nhập từ, bot sẽ tự chọn từ ngẫu nhiên.\nNút 'Bắt Đầu Nhanh' bên dưới cũng sẽ để bot chọn từ.", 
+    embed.add_field(name=f"{bot_cfg.GAME_START_ICON} Bắt đầu game",
+                    value=f"{start_game_help_specific}\nNếu không nhập từ, bot sẽ tự chọn từ ngẫu nhiên.\nNút 'Bắt Đầu Nhanh' bên dưới cũng sẽ để bot chọn từ.",
                     inline=False)
     embed.add_field(name=f"{bot_cfg.STOP_ICON} Dừng game", value=f"`/stop` hoặc `{current_prefix}stop`.", inline=False)
     embed.add_field(name=f"{bot_cfg.LEADERBOARD_ICON} Bảng xếp hạng", value=f"`/bxh` hoặc `{current_prefix}bxh` (hiển thị BXH cho ngôn ngữ của kênh này).", inline=False)
-    
+
     admin_cmds_value = (
         f"`/config view` - Xem cấu hình kênh.\n"
         f"`/config set_prefix <kí_tự>`\n"
@@ -176,7 +207,7 @@ async def generate_help_embed(bot: commands.Bot, guild: discord.Guild, current_p
         f"(Hoặc dùng `{current_prefix}config ...` cho một số cài đặt cơ bản)"
     )
     embed.add_field(name=f"{bot_cfg.CONFIG_ICON} Cấu hình (Admin)", value=admin_cmds_value, inline=False)
-    
+
     reactions_guide = (
         f"{bot_cfg.CORRECT_REACTION} Từ hợp lệ | "
         f"{bot_cfg.ERROR_REACTION} Từ không hợp lệ / đã dùng | "
@@ -189,7 +220,6 @@ async def generate_help_embed(bot: commands.Bot, guild: discord.Guild, current_p
 
 
 async def generate_leaderboard_embed(bot: commands.Bot, guild: discord.Guild, game_language: str):
-    """Tạo embed bảng xếp hạng. Trả về (embed, error_message_str)."""
     if not bot.db_pool:
         return None, "Lỗi: DB chưa sẵn sàng."
     if not guild:
@@ -201,12 +231,12 @@ async def generate_leaderboard_embed(bot: commands.Bot, guild: discord.Guild, ga
     async with bot.db_pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT name, wins, correct_moves, wrong_word_link, invalid_wiktionary, used_word_error, wrong_turn, 
+            SELECT name, wins, correct_moves, wrong_word_link, invalid_wiktionary, used_word_error, wrong_turn,
                    lost_by_n_ending, current_win_streak, max_win_streak
-            FROM leaderboard_stats 
+            FROM leaderboard_stats
             WHERE guild_id = $1 AND game_language = $2
             ORDER BY wins DESC, correct_moves DESC, max_win_streak DESC, current_win_streak DESC,
-                     (wrong_word_link + invalid_wiktionary + used_word_error + wrong_turn + lost_by_n_ending) ASC, 
+                     (wrong_word_link + invalid_wiktionary + used_word_error + wrong_turn + lost_by_n_ending) ASC,
                      name ASC
             LIMIT 10;
             """, guild.id, game_language
@@ -219,22 +249,22 @@ async def generate_leaderboard_embed(bot: commands.Bot, guild: discord.Guild, ga
     embed = discord.Embed(title=f"{bot_cfg.LEADERBOARD_ICON} BXH Nối Từ ({game_lang_name})", color=bot_cfg.EMBED_COLOR_LEADERBOARD)
     if guild.icon:
         embed.set_thumbnail(url=guild.icon.url)
-    
+
     desc_parts = []
-    emojis = ["🥇", "🥈", "🥉"] 
+    emojis = ["🥇", "🥈", "🥉"]
     for i, s_dict in enumerate(rows):
-        s = dict(s_dict) 
+        s = dict(s_dict)
         rank_display = emojis[i] if i < len(emojis) else f"**{i+1}.**"
-        
+
         player_name_escaped = discord.utils.escape_markdown(s['name'])
-        if len(player_name_escaped) > 25: player_name_escaped = player_name_escaped[:22] + "..." 
+        if len(player_name_escaped) > 25: player_name_escaped = player_name_escaped[:22] + "..."
 
         streak_info = f" (Hiện tại: **{s['current_win_streak']}** 🔥)" if s['current_win_streak'] > 0 else ""
-        
+
         total_errors = s.get("wrong_word_link",0) + s.get("invalid_wiktionary",0) + s.get("used_word_error",0)
         if game_language == "JP":
             total_errors += s.get("lost_by_n_ending", 0)
-        
+
         player_entry = (
             f"{rank_display} **{player_name_escaped}**\n"
             f"   🏅 Thắng: `{s['wins']}` | ✅ Lượt đúng: `{s['correct_moves']}`\n"
@@ -243,14 +273,13 @@ async def generate_leaderboard_embed(bot: commands.Bot, guild: discord.Guild, ga
         )
         desc_parts.append(player_entry)
 
-    embed.description = "\n\n".join(desc_parts) # Thêm khoảng cách giữa các entry
+    embed.description = "\n\n".join(desc_parts)
     embed.set_footer(text=f"Server: {guild.name} | Sắp xếp: Thắng > Lượt đúng > Chuỗi max > ...")
     return embed, None
 
 async def send_random_guild_emoji_if_any(channel: discord.TextChannel, guild: discord.Guild):
-    """Gửi một emoji ngẫu nhiên từ server vào kênh (nếu có)."""
     if guild and guild.emojis:
-        available_emojis = list(guild.emojis) # Lấy tất cả emojis
+        available_emojis = list(guild.emojis)
         if available_emojis:
             try:
                 random_emoji = random.choice(available_emojis)
