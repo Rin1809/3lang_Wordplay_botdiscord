@@ -27,46 +27,76 @@ async def check_game_timeout(bot: commands.Bot, channel_id: int, guild_id: int, 
         return
 
     game_state_details = bot.active_games.get(channel_id) 
-    displayed_word_for_countdown = ""
-    romaji_info_for_countdown = ""
+    if not game_state_details: # Game might have ended or state is missing
+        if channel_id in bot.active_games: del bot.active_games[channel_id] 
+        return
 
+    
+    actual_display_word = ""
     if game_lang == "VN":
-        displayed_word_for_countdown = expected_phrase_normalized.title()
+        actual_display_word = expected_phrase_normalized.title()
     elif game_lang == "JP":
-        if game_state_details:
-            displayed_word_for_countdown = game_state_details.get("current_phrase_display_form", expected_phrase_normalized)
-        else:
-            displayed_word_for_countdown = expected_phrase_normalized 
-
-        if bot.kakasi and expected_phrase_normalized:
-            try:
-                conversion_result = bot.kakasi.convert(expected_phrase_normalized)
-                if conversion_result:
-                    romaji_parts = [item['hepburn'] for item in conversion_result if 'hepburn' in item and item['hepburn']]
-                    full_romaji = "".join(romaji_parts).strip()
-                    if full_romaji:
-                        if displayed_word_for_countdown.strip().lower() != full_romaji.strip().lower():
-                            romaji_info_for_countdown = f" (romaji: {full_romaji})"
-            except Exception as e_kks:
-                print(f"Loi pykakasi cv romaji cho '{expected_phrase_normalized}' trong countdown: {e_kks}")
-                traceback.print_exc() 
+        actual_display_word = game_state_details.get("current_phrase_display_form", expected_phrase_normalized)
     else: 
-        displayed_word_for_countdown = expected_phrase_normalized
+        actual_display_word = expected_phrase_normalized
 
-    initial_countdown_text_base = ""
+
+    # Get Romaji for JP if applicable
+    romaji_for_message_internal = ""
+    if game_lang == "JP" and bot.kakasi and expected_phrase_normalized:
+        try:
+            conversion_result = bot.kakasi.convert(expected_phrase_normalized)
+            if conversion_result:
+                romaji_parts = [item['hepburn'] for item in conversion_result if 'hepburn' in item and item['hepburn']]
+                full_romaji = "".join(romaji_parts).strip()
+
+                if full_romaji and actual_display_word.strip().lower() != full_romaji.strip().lower():
+                    romaji_for_message_internal = full_romaji
+        except Exception as e_kks:
+            print(f"Loi pykakasi cv romaji cho '{expected_phrase_normalized}' trong countdown: {e_kks}")
+            traceback.print_exc() 
+
+    next_word_or_mora_to_match = ""
+    raw_next_match = game_state_details.get("word_to_match_next", "")
+    if game_lang == "JP" and raw_next_match:
+        next_word_or_mora_to_match = raw_next_match 
+    elif game_lang == "VN" and raw_next_match:
+        next_word_or_mora_to_match = raw_next_match.capitalize()
+
+
+    # Build the player part of the message
+    player_part_for_message = ""
     if expected_last_player_id == bot.user.id:
-        initial_countdown_text_base = f"⏳ {bot_cfg.BOT_PLAYER_START_EMOJI} Bot đã ra từ \"**{displayed_word_for_countdown}**{romaji_info_for_countdown}\". "
+        player_part_for_message = f"{bot_cfg.BOT_PLAYER_START_EMOJI} Bot đã ra từ \"**{actual_display_word}**\""
     else:
         try:
-            winner_user_to_be = await bot.fetch_user(expected_last_player_id)
-            initial_countdown_text_base = f"⏳ {bot_cfg.USER_PLAYER_START_EMOJI} {winner_user_to_be.mention} đã ra từ \"**{displayed_word_for_countdown}**{romaji_info_for_countdown}\". "
+            last_player_user_obj = await bot.fetch_user(expected_last_player_id)
+            player_part_for_message = f"{bot_cfg.USER_PLAYER_START_EMOJI} {last_player_user_obj.mention} đã ra từ \"**{actual_display_word}**\""
         except discord.NotFound:
-            initial_countdown_text_base = f"⏳ {bot_cfg.USER_PLAYER_START_EMOJI} Người chơi ID {expected_last_player_id} đã ra từ \"**{displayed_word_for_countdown}**{romaji_info_for_countdown}\". "
+            player_part_for_message = f"{bot_cfg.USER_PLAYER_START_EMOJI} Người chơi ID {expected_last_player_id} đã ra từ \"**{actual_display_word}**\""
         except discord.HTTPException:
-            initial_countdown_text_base = f"⏳ {bot_cfg.USER_PLAYER_START_EMOJI} Một người chơi đã ra từ \"**{displayed_word_for_countdown}**{romaji_info_for_countdown}\". "
+            player_part_for_message = f"{bot_cfg.USER_PLAYER_START_EMOJI} Một người chơi đã ra từ \"**{actual_display_word}**\""
+
+    # Build romaji part for display
+    romaji_display_part = ""
+    if game_lang == "JP" and romaji_for_message_internal:
+        romaji_display_part = f" (romaji: {romaji_for_message_internal})"
+
+    # Build next word/mora part for display
+    next_word_display_part = ""
+    if next_word_or_mora_to_match:
+        next_word_display_part = f" Từ cần nối tiếp theo là \"**{next_word_or_mora_to_match}**\"." # Added period
+    
+    # Helper to construct the full countdown message content
+    def _construct_countdown_message_content(remaining_seconds_val: int) -> str:
+        time_part = f"Thời gian cho người tiếp theo: {remaining_seconds_val} giây."
+        # Structure: ⏳ {Player part "Player X ra từ Y"}{Romaji part}.{Next word part} {Time part}
+        return f"⏳ {player_part_for_message}{romaji_display_part}.{next_word_display_part} {time_part}"
+
 
     try:
-        countdown_message = await message_channel.send(f"{initial_countdown_text_base}Thời gian cho người tiếp theo: {timeout_seconds_for_guild} giây.")
+        initial_message_content = _construct_countdown_message_content(timeout_seconds_for_guild)
+        countdown_message = await message_channel.send(initial_message_content)
     except discord.HTTPException as e:
         print(f"Lỗi gửi msg đếm ngược: {e}")
         countdown_message = None
@@ -79,15 +109,16 @@ async def check_game_timeout(bot: commands.Bot, channel_id: int, guild_id: int, 
             await asyncio.sleep(min(edit_interval, timeout_seconds_for_guild - time_slept))
             time_slept += edit_interval
 
-            if channel_id not in bot.active_games or not bot.active_games[channel_id]["active"]:
+            # Check if game is still active and the state matches
+            current_game_check = bot.active_games.get(channel_id)
+            if not current_game_check or not current_game_check.get("active"):
                 if countdown_message:
                     try: await countdown_message.delete()
                     except (discord.NotFound, discord.HTTPException): pass
                 return
 
-            game = bot.active_games[channel_id]
-            if not (game.get("last_player_id") == expected_last_player_id and \
-                    game.get("current_phrase_str") == expected_phrase_normalized): 
+            if not (current_game_check.get("last_player_id") == expected_last_player_id and \
+                    current_game_check.get("current_phrase_str") == expected_phrase_normalized): 
                 if countdown_message:
                     try: await countdown_message.delete()
                     except (discord.NotFound, discord.HTTPException): pass
@@ -95,10 +126,16 @@ async def check_game_timeout(bot: commands.Bot, channel_id: int, guild_id: int, 
 
             if countdown_message:
                 remaining_time = max(0, timeout_seconds_for_guild - time_slept)
-                new_text = f"{initial_countdown_text_base}Thời gian cho người tiếp theo: {remaining_time} giây."
+                new_text_content = _construct_countdown_message_content(remaining_time)
                 if remaining_time > 0 : 
-                    try: await countdown_message.edit(content=new_text)
-                    except (discord.NotFound, discord.HTTPException): countdown_message = None 
+                    try: await countdown_message.edit(content=new_text_content)
+                    except (discord.NotFound, discord.HTTPException): 
+                        countdown_message = None # Message gone, can't edit
+                        # Attempt to resend if crucial, or just let it be if too complex
+                elif remaining_time == 0 and countdown_message: # Final update to 0 before deletion
+                    try: await countdown_message.edit(content=new_text_content)
+                    except (discord.NotFound, discord.HTTPException): countdown_message = None
+
 
             if time_slept >= timeout_seconds_for_guild: break 
 
@@ -106,30 +143,32 @@ async def check_game_timeout(bot: commands.Bot, channel_id: int, guild_id: int, 
             try: await countdown_message.delete()
             except (discord.NotFound, discord.HTTPException): pass
 
-        if channel_id in bot.active_games and bot.active_games[channel_id]["active"]:
-            game = bot.active_games[channel_id]
-            if game.get("last_player_id") == expected_last_player_id and \
-               game.get("current_phrase_str") == expected_phrase_normalized: 
+        # Check game state again before declaring winner by timeout
+        final_game_check = bot.active_games.get(channel_id)
+        if final_game_check and final_game_check.get("active"):
+            if final_game_check.get("last_player_id") == expected_last_player_id and \
+               final_game_check.get("current_phrase_str") == expected_phrase_normalized: 
 
-                winner_id = game["last_player_id"]
-                current_game_lang = game.get("game_language", "VN") 
-                winning_phrase_final_display = displayed_word_for_countdown
-                if game_lang == "JP" and romaji_info_for_countdown: 
-                    winning_phrase_final_display += romaji_info_for_countdown
-                elif game_lang == "VN": 
-                     winning_phrase_final_display = expected_phrase_normalized.title()
+                winner_id = final_game_check["last_player_id"]
+                current_game_lang_from_state = final_game_check.get("game_language", "VN") 
+                
+                # Prepare winning phrase display for the win embed
+                winning_phrase_final_display = actual_display_word # Already set (Kanji/Titled VN)
+                if current_game_lang_from_state == "JP" and romaji_for_message_internal: 
+                    winning_phrase_final_display += f" (romaji: {romaji_for_message_internal})"
+                # For VN, actual_display_word is already correct (e.g., "Some Word".title())
 
                 win_embed = discord.Embed(color=bot_cfg.EMBED_COLOR_WIN)
                 original_starter_for_view = winner_id 
-                game_lang_display = f"{bot_cfg.GAME_VN_ICON} Tiếng Việt" if current_game_lang == "VN" else f"{bot_cfg.GAME_JP_ICON} Tiếng Nhật"
+                game_lang_display_for_embed = f"{bot_cfg.GAME_VN_ICON} Tiếng Việt" if current_game_lang_from_state == "VN" else f"{bot_cfg.GAME_JP_ICON} Tiếng Nhật"
 
                 if winner_id == bot.user.id: 
                     win_embed.title = f"{bot_cfg.TIMEOUT_WIN_ICON} Hết Giờ! Không Ai Nối Từ Của Bot {bot_cfg.TIMEOUT_WIN_ICON}"
                     win_embed.description = (
                         f"Đã hết **{timeout_seconds_for_guild} giây**! Không ai nối được từ \"**{winning_phrase_final_display}**\" của {bot_cfg.BOT_PLAYER_START_EMOJI} Bot.\n"
-                        f"Game Nối Từ ({game_lang_display}) kết thúc không có người thắng."
+                        f"Game Nối Từ ({game_lang_display_for_embed}) kết thúc không có người thắng."
                     )
-                    participants_list = list(game.get("participants_since_start", []))
+                    participants_list = list(final_game_check.get("participants_since_start", []))
                     original_starter_for_view = participants_list[0] if participants_list else bot.user.id
                     if bot.user.display_avatar: win_embed.set_thumbnail(url=bot.user.display_avatar.url)
                 else: 
@@ -139,17 +178,17 @@ async def check_game_timeout(bot: commands.Bot, channel_id: int, guild_id: int, 
                         winner_user_obj = await bot.fetch_user(winner_id)
                         winner_name_display = winner_user_obj.name
                         if winner_user_obj.display_avatar: win_embed.set_thumbnail(url=winner_user_obj.display_avatar.url)
-                        await database.update_stat(bot.db_pool, bot.user.id, winner_id, guild_id, "wins", winner_name_display, game_language=current_game_lang)
-                        for pid in game.get("participants_since_start", set()):
+                        await database.update_stat(bot.db_pool, bot.user.id, winner_id, guild_id, "wins", winner_name_display, game_language=current_game_lang_from_state)
+                        for pid in final_game_check.get("participants_since_start", set()):
                             if pid != winner_id and pid != bot.user.id: 
-                                await database.reset_win_streak_for_user(bot.db_pool, pid, guild_id, game_language=current_game_lang)
+                                await database.reset_win_streak_for_user(bot.db_pool, pid, guild_id, game_language=current_game_lang_from_state)
 
                         win_embed.title = f"{bot_cfg.WIN_ICON} {discord.utils.escape_markdown(winner_name_display)} Chiến Thắng! {bot_cfg.WIN_ICON}"
                         win_embed.description = (
-                            f"{winner_user_obj.mention} đã chiến thắng game Nối Từ ({game_lang_display})!\n"
+                            f"{winner_user_obj.mention} đã chiến thắng game Nối Từ ({game_lang_display_for_embed})!\n"
                             f"Không ai nối tiếp được từ \"**{winning_phrase_final_display}**\" của bạn trong **{timeout_seconds_for_guild} giây**."
                         )
-                        user_stats = await database.get_user_stats_entry(bot.db_pool, winner_id, guild_id, current_game_lang, winner_name_display)
+                        user_stats = await database.get_user_stats_entry(bot.db_pool, winner_id, guild_id, current_game_lang_from_state, winner_name_display)
                         if user_stats:
                              stats_text = (
                                  f"🏅 Tổng thắng: **{user_stats['wins']}**\n"
@@ -158,13 +197,13 @@ async def check_game_timeout(bot: commands.Bot, channel_id: int, guild_id: int, 
                              win_embed.add_field(name="Thành Tích Cá Nhân", value=stats_text, inline=False)
                         original_starter_for_view = winner_id
                     except discord.NotFound: 
-                        await database.update_stat(bot.db_pool, bot.user.id, winner_id, guild_id, "wins", f"User ID {winner_id}", game_language=current_game_lang)
+                        await database.update_stat(bot.db_pool, bot.user.id, winner_id, guild_id, "wins", f"User ID {winner_id}", game_language=current_game_lang_from_state)
                         win_embed.title = f"{bot_cfg.WIN_ICON} Người Chơi ID {winner_id} Thắng Cuộc! {bot_cfg.WIN_ICON}"
-                        win_embed.description = f"Người chơi ID {winner_id} đã thắng game ({game_lang_display}) với từ \"**{winning_phrase_final_display}**\"! (Không thể lấy thông tin chi tiết)."
+                        win_embed.description = f"Người chơi ID {winner_id} đã thắng game ({game_lang_display_for_embed}) với từ \"**{winning_phrase_final_display}**\"! (Không thể lấy thông tin chi tiết)."
                     except discord.HTTPException: 
-                         await database.update_stat(bot.db_pool, bot.user.id, winner_id, guild_id, "wins", f"User ID {winner_id} (API Err)", game_language=current_game_lang)
+                         await database.update_stat(bot.db_pool, bot.user.id, winner_id, guild_id, "wins", f"User ID {winner_id} (API Err)", game_language=current_game_lang_from_state)
                          win_embed.title = f"{bot_cfg.WIN_ICON} Một Người Chơi Thắng! {bot_cfg.WIN_ICON}"
-                         win_embed.description = f"Một người chơi đã thắng game ({game_lang_display}) với từ \"**{winning_phrase_final_display}**\"! (Lỗi khi lấy thông tin người chơi)."
+                         win_embed.description = f"Một người chơi đã thắng game ({game_lang_display_for_embed}) với từ \"**{winning_phrase_final_display}**\"! (Lỗi khi lấy thông tin người chơi)."
 
                 win_embed.set_footer(text=f"Kênh: #{message_channel.name} | Server: {message_channel.guild.name}")
                 view = PostGameView(
@@ -548,7 +587,7 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
 
         if hira_form_jp is None and not is_valid_jp:
             print(f"DEBUG GAME_MSG JP: Return - hira_form_jp is None AND is_valid_jp is False. Input: '{user_input_original_str}'")
-            return
+            pass 
 
         if current_player_id == game_state["last_player_id"]:
             try:
@@ -567,13 +606,11 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
         if not is_valid_jp: 
              error_occurred = True
              error_type_for_stat = "invalid_wiktionary"
-             # Nếu hira_form_jp rỗng ở đây (từ ko hợp lệ và ko cv đc hira), phrase_to_validate sẽ rỗng
-             # Điều này sẽ được xử lý ở check phrase_to_validate sau
+
              if hira_form_jp:
                  phrase_to_validate = hira_form_jp
-             else: # Ko có hira form, ko thể ktra luật 'ん' hoặc nối từ 1 cách đáng tin
+             else: 
                  print(f"DEBUG GAME_MSG JP: Invalid word AND no hira_form for '{user_input_original_str}'. Error will be set.")
-                 # error_occurred đã là True rồi
 
         if not error_occurred and is_valid_jp: 
             if not hira_form_jp: 
@@ -659,12 +696,12 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
     if not error_occurred and phrase_to_validate and phrase_to_validate in game_state["used_phrases"]:
         error_occurred = True; error_type_for_stat = "used_word_error"
     
-    # Xử lý nếu phrase_to_validate rỗng (thường do input JP ko hợp lệ VÀ ko cv đc hira)
-    # nhưng ko có lỗi nào khác được set (vd: sai lượt)
+    # Handle if phrase_to_validate is empty (usually due to invalid JP input that couldn't be converted to hiragana)
+    # and no other error (like wrong turn) has been set.
     if game_lang == "JP" and not phrase_to_validate and not error_occurred:
         print(f"DEBUG GAME_MSG JP: Setting error because phrase_to_validate is empty. Input: '{user_input_original_str}', Hira: '{hira_form_jp}', Valid: {is_valid_jp}")
         error_occurred = True
-        error_type_for_stat = "internal_error" # Hoặc "invalid_wiktionary" nếu is_valid_jp là False
+        error_type_for_stat = "invalid_wiktionary" # Or "internal_error" if is_valid_jp was somehow true but hira is None
 
     if error_occurred:
         print(f"DEBUG GAME_MSG: Error occurred. Type: {error_type_for_stat}, Input: '{user_input_original_str}', Player: {current_player_name}")
@@ -674,17 +711,17 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
             await database.update_stat(bot.db_pool, bot.user.id, current_player_id, guild_id, error_type_for_stat, current_player_name, game_language=game_lang)
         return 
 
-    # Kiểm tra lại phrase_to_validate cho JP một lần nữa trước khi dùng
+    # Double-check phrase_to_validate for JP one last time before use
     if not phrase_to_validate and game_lang == "JP":
-        # Điều này ko nên xảy ra nếu logic ở trên đúng, nhưng là một biện pháp an toàn
+        # This shouldn't happen if the logic above is correct, but it's a safety net.
         print(f"LOGIC_ERROR: JP move, no error, but phrase_to_validate is empty. Input: {user_input_original_str}, Hira: {hira_form_jp}, Valid: {is_valid_jp}")
-        # Gửi một thông báo lỗi chung và return
+        # Send a generic error reaction and log.
         try: await message.add_reaction(bot_cfg.ERROR_REACTION)
         except: pass
         await database.update_stat(bot.db_pool, bot.user.id, current_player_id, guild_id, "internal_error", current_player_name, game_language=game_lang)
         return
 
-    # ---- TU HOP LE ----
+    # ---- VALID MOVE ----
     try: await message.add_reaction(bot_cfg.CORRECT_REACTION) 
     except (discord.Forbidden, discord.HTTPException): pass
     await database.update_stat(bot.db_pool, bot.user.id, current_player_id, guild_id, "correct_moves", current_player_name, game_language=game_lang)
@@ -700,8 +737,14 @@ async def process_game_message(bot: commands.Bot, message: discord.Message):
     else: 
         linking_mora_jp_current = utils.get_shiritori_linking_mora_from_previous_word(phrase_to_validate)
         if not linking_mora_jp_current: 
-            print(f"LỖI NGHIÊM TRỌNG: Không thể lấy âm tiết nối của từ JP hợp lệ: {phrase_to_validate}")
-            await message.channel.send(f"⚠️ Bot gặp lỗi xử lý từ \"{display_form_for_current_move}\". Lượt này có thể không được tính đúng.")
+            print(f"CRITICAL ERROR: Could not get linking mora for valid JP word: {phrase_to_validate}")
+            await message.channel.send(f"⚠️ Bot encountered an error processing the word \"{display_form_for_current_move}\". This turn may not be counted correctly.")
+            # Potentially end the game or handle this more gracefully
+            if "timeout_task" in game_state and game_state["timeout_task"]: # Attempt to cancel existing task
+                game_state["timeout_task"].cancel()
+            if channel_id in bot.active_games:
+                del bot.active_games[channel_id] # Stop game due to critical internal error
+            await message.channel.send("🛑 Game đã được dừng do lỗi xử lý từ Tiếng Nhật. Vui lòng bắt đầu game mới.")
             return
         else:
             game_state["word_to_match_next"] = linking_mora_jp_current
