@@ -54,7 +54,6 @@ def convert_romaji_to_hiragana_custom(romaji_text: str) -> str:
     n_len = len(romaji_text)
 
     while i < n_len:
-        # Sokuon (っ) - doubled consonants (ko 'n')
         if i + 1 < n_len and \
            romaji_text[i] == romaji_text[i+1] and \
            romaji_text[i] not in "aiueon'm" and \
@@ -63,21 +62,19 @@ def convert_romaji_to_hiragana_custom(romaji_text: str) -> str:
             i += 1 
             continue
 
-        # 'n' (ん)
         if romaji_text[i] == 'n':
             if (i + 1 == n_len or \
                 (romaji_text[i+1].isalpha() and \
                  romaji_text[i+1] not in "aiueoyāīūēō")):
                 is_ny_combo = False
                 if i + 2 < n_len:
-                    if romaji_text[i:i+3] in ROMAJI_TO_HIRAGANA_MAP: #nya, nyu, nyo
+                    if romaji_text[i:i+3] in ROMAJI_TO_HIRAGANA_MAP: 
                         is_ny_combo = True
                 if not is_ny_combo:
                     hiragana_text += "ん"
                     i += 1
                     continue
 
-        # Trường âm (vd: ou -> おう)
         if i + 1 < n_len:
             if romaji_text[i] == 'o' and romaji_text[i+1] == 'u':
                 found_longer = False
@@ -92,7 +89,6 @@ def convert_romaji_to_hiragana_custom(romaji_text: str) -> str:
                     i += 2
                     continue
         
-        # Khớp dài nhất
         matched_key = None
         for key in ROMAJI_KEYS_SORTED_FOR_CONVERSION:
             if romaji_text.startswith(key, i):
@@ -103,7 +99,6 @@ def convert_romaji_to_hiragana_custom(romaji_text: str) -> str:
             hiragana_text += ROMAJI_TO_HIRAGANA_MAP[matched_key]
             i += len(matched_key)
         else:
-            # 'm' trc b/p/m -> 'ん'
             if romaji_text[i] == 'm' and i + 1 < n_len and romaji_text[i+1] in "bpm":
                 hiragana_text += "ん"
                 i += 1
@@ -117,48 +112,45 @@ def is_pure_katakana(text: str) -> bool:
     """Ktra str có thuần Katakana (và Chōonpu)."""
     if not text: return False
     for char_code in map(ord, text):
-        # Katakana Unicode: 0x30A0-0x30FF, Katakana Phonetic Ext: 0x31F0-0x31FF, Chōonpu (ー): 0x30FC
         if not ((0x30A0 <= char_code <= 0x30FF) or \
                 (0x31F0 <= char_code <= 0x31FF) or \
                 char_code == 0x30FC):
             return False
     return True
 
-def convert_katakana_to_hiragana_custom(katakana_text: str) -> str:
-    """Cv Katakana -> Hiragana bằng mã offset."""
-    if not katakana_text: return ""
-    hiragana_text = ""
-    for char_k in katakana_text:
-        code_k = ord(char_k)
-        # Khoảng Katakana thông dụng (ァ-ヺ, 0x30A1-0x30FA)
-        if (0x30A1 <= code_k <= 0x30FA):
-            hiragana_text += chr(code_k - 0x0060) # Offset sang Hiragana
-        elif code_k == 0x30FD or code_k == 0x30FE: # Dấu lặp Katakana ヽ, ヾ
-             hiragana_text += chr(code_k - 0x0060)
-        elif char_k == 'ー': # Chōonpu (ー), giữ nguyên
-            hiragana_text += 'ー'
-        # Các ký tự đặc thù khác nếu cần
-        elif code_k == 0x30F4: # ヴ (VU) -> ゔ (vu)
-            hiragana_text += chr(code_k - 0x0060)
-        elif code_k == 0x30F5: # ヵ (KA nhỏ) -> ゕ (ka nhỏ)
-            hiragana_text += chr(code_k - 0x0060)
-        elif code_k == 0x30F6: # ヶ (KE nhỏ) -> ゖ (ke nhỏ)
-            hiragana_text += chr(code_k - 0x0060)
+def convert_hiragana_to_katakana_custom(hiragana_text: str) -> str: # Đổi tên từ convert_katakana_to_hiragana
+    """Cv Hiragana -> Katakana bằng mã offset."""
+    if not hiragana_text: return ""
+    katakana_text = ""
+    for char_h in hiragana_text:
+        code_h = ord(char_h)
+        # Khoảng Hiragana thông dụng (ぁ-ズ, 0x3041-0x30FA)
+        if (0x3041 <= code_h <= 0x309A) and code_h != 0x3097 and code_h != 0x3098: # Bỏ ゗ ゘ (ít dùng)
+            katakana_text += chr(code_h + 0x0060)  # Offset sang Katakana
+        elif code_h == 0x309D or code_h == 0x309E: # Dấu lặp Hiragana ゝ, ゞ
+             katakana_text += chr(code_h + 0x0060)
+        elif char_h == 'ー': # Chōonpu (ー), giữ nguyên
+            katakana_text += 'ー'
+        elif code_h == 0x3094: # ゔ (vu Hira) -> ヴ (VU Kata)
+            katakana_text += chr(code_h + 0x0060)
+        elif code_h == 0x3095: # ゕ (ka nhỏ Hira) -> ヵ (KA nhỏ Kata)
+            katakana_text += chr(code_h + 0x0060)
+        elif code_h == 0x3096: # ゖ (ke nhỏ Hira) -> ヶ (KE nhỏ Kata)
+            katakana_text += chr(code_h + 0x0060)
         else:
-            hiragana_text += char_k # Giữ ký tự khác (punctuation, Kanji)
-    return hiragana_text
+            katakana_text += char_h # Giữ ký tự khác
+    return katakana_text
+
 
 def is_pure_hiragana(text: str) -> bool:
     """Ktra str có thuần Hiragana (và Chōonpu)."""
     if not text: return False
     for char_code in map(ord, text):
-        # Hiragana Unicode 0x3040-0x309F, Chōonpu (ー, 0x30FC)
         if not ((0x3040 <= char_code <= 0x309F) or char_code == 0x30FC):
             return False
     return True
 # --- END: Romaji to Hiragana Conversion Logic ---
 
-# Hira nhỏ -> hira đủ (khi cuối ko phải Yōon)
 HIRAGANA_SMALL_TO_FULL_MAP = {
     'ぁ': 'あ', 'ぃ': 'い', 'ぅ': 'う', 'ぇ': 'え', 'ぉ': 'お',
     'ゃ': 'や', 'ゅ': 'ゆ', 'ょ': 'よ', 'ゎ': 'わ',
@@ -168,47 +160,43 @@ HIRAGANA_SMALL_TO_FULL_MAP = {
 YŌON_BASES = "きしちにひみりぎじぢびぴ"
 YŌON_SMALLS = "ゃゅょ"
 
-def get_words_from_input(phrase_input: str) -> list[str]: # Cho VN
+def get_words_from_input(phrase_input: str) -> list[str]: 
     return [word.strip().lower() for word in phrase_input.strip().split() if word.strip()]
 
-def get_shiritori_linking_mora_from_previous_word(hira_string: str) -> str | None: # Âm tiết nối
+def get_shiritori_linking_mora_from_previous_word(hira_string: str) -> str | None: 
     if not hira_string: return None
 
-    # Xử lý chōonpu (ー) cuối
     if hira_string.endswith('ー'):
-        if len(hira_string) == 1: return None # 'ー' đơn lẻ
+        if len(hira_string) == 1: return None 
         part_before_choon = hira_string[:-1]
         if not part_before_choon: return None
         
-        # Yōon cuối của phần trc 'ー'
         if len(part_before_choon) >= 2:
             second_last_char_of_part = part_before_choon[-2]
             last_char_of_part = part_before_choon[-1]
             if last_char_of_part in YŌON_SMALLS and second_last_char_of_part in YŌON_BASES:
                 return second_last_char_of_part + last_char_of_part 
         
-        # Ko Yōon, lấy ký tự cuối của phần trc 'ー'
         last_char_final_of_part = part_before_choon[-1]
         return HIRAGANA_SMALL_TO_FULL_MAP.get(last_char_final_of_part, last_char_final_of_part)
 
-    # Logic gốc cho từ ko kết thúc bằng 'ー'
     if len(hira_string) >= 2:
         second_last_char = hira_string[-2]
         last_char = hira_string[-1]
         if last_char in YŌON_SMALLS and second_last_char in YŌON_BASES:
-            return second_last_char + last_char # Vd: "しゃ" từ "いしゃ"
+            return second_last_char + last_char 
     
     last_char_final = hira_string[-1]
     return HIRAGANA_SMALL_TO_FULL_MAP.get(last_char_final, last_char_final)
 
-def get_first_mora_of_current_word(hira_string: str) -> str | None: # Âm tiết đầu
+def get_first_mora_of_current_word(hira_string: str) -> str | None: 
     if not hira_string: return None
 
     if len(hira_string) >= 2:
         first_char = hira_string[0]
         second_char = hira_string[1]
         if second_char in YŌON_SMALLS and first_char in YŌON_BASES:
-            return first_char + second_char # Vd: "しゃ" từ "しゃかい"
+            return first_char + second_char 
             
     return hira_string[0]
 
@@ -250,7 +238,7 @@ async def _send_message_smart(target: discord.Interaction | commands.Context, co
     if view is not None and isinstance(view, View): send_kwargs['view'] = view
 
     if is_interaction_source:
-        if not isinstance(target, discord.Interaction): # Lỗi type
+        if not isinstance(target, discord.Interaction): 
             print(f"ERR _send_smart: target ko phải inter. Type: {type(target)}")
             if hasattr(target, 'channel') and isinstance(target.channel, discord.TextChannel):
                 fallback_kwargs = send_kwargs.copy()
@@ -400,7 +388,7 @@ async def generate_leaderboard_embed(bot: commands.Bot, guild: discord.Guild, ga
     desc_parts = []
     emojis = ["🥇", "🥈", "🥉"]
     for i, s_dict in enumerate(rows):
-        s = dict(s_dict) # s là 1 record
+        s = dict(s_dict) 
         rank_display = emojis[i] if i < len(emojis) else f"**{i+1}.**"
         player_name_escaped = discord.utils.escape_markdown(s['name'])
         if len(player_name_escaped) > 25: player_name_escaped = player_name_escaped[:22] + "..."
@@ -434,9 +422,22 @@ def is_romaji(text: str) -> bool:
     """Ktra str có chủ yếu là ASCII letters (gợi ý Romaji)."""
     if not text: return False
     alpha_count = 0
+    non_alpha_penalty = 0
     for char in text:
-        if 'a' <= char.lower() <= 'z':
+        c_lower = char.lower()
+        if 'a' <= c_lower <= 'z':
             alpha_count += 1
-        elif char in "'-": # Phổ biến trong Romaji
-            alpha_count += 0.5 # Tính 1 phần
-    return alpha_count / len(text) > 0.7 # Hơn 70% là ký tự alphabet/liên quan romaji
+        elif c_lower in "'-": 
+            alpha_count += 0.5 
+        elif c_lower.isspace(): # Bỏ qua khoảng trắng
+            continue
+        else: # Ký tự khác (kana, kanji, số, ...) -> giảm khả năng là Romaji
+            non_alpha_penalty +=1
+            
+    if len(text.replace(" ","")) == 0 : return False # Chuỗi rỗng hoặc chỉ có khoảng trắng
+    
+    # Nếu có nhiều ký tự không phải alphabet/romaji-common hơn là alphabet -> không phải romaji
+    if non_alpha_penalty > alpha_count : return False
+    
+    # Tỷ lệ ký tự alphabet/romaji-common trên tổng số ký tự không phải khoảng trắng
+    return alpha_count / (len(text.replace(" ",""))) > 0.6 
