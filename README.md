@@ -51,8 +51,7 @@ Bot sử dụng API Wiktionary và từ điển cục bộ để xác thực t�
 
 1.  **Tải mã nguồn:**
     ```bash
-    git clone <URL_REPOSITORY_CUA_BAN>
-    cd Noitu-Discord-Bot # Hoặc tên thư mục dự án của bạn
+    git clone https://github.com/Rin1809/VN-JP_Word_Chain_Bot_Discord
     ```
 
 2.  **Cấu hình môi trường:**
@@ -235,8 +234,7 @@ The bot utilizes Wiktionary APIs and local dictionaries for word validation, ens
 
 1.  **Clone the Repository:**
     ```bash
-    git clone <YOUR_REPOSITORY_URL>
-    cd Noitu-Discord-Bot # Or your project directory name
+    git clone https://github.com/Rin1809/VN-JP_Word_Chain_Bot_Discord
     ```
 
 2.  **Configure Environment:**
@@ -421,8 +419,7 @@ Noitu/                     # Project Root
 
 1.  **リポジトリのクローン:**
     ```bash
-    git clone <YOUR_REPOSITORY_URL>
-    cd Noitu-Discord-Bot # またはプロジェクトディレクトリ名
+    git clone https://github.com/Rin1809/VN-JP_Word_Chain_Bot_Discord
     ```
 
 2.  **環境設定:**
