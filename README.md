@@ -141,11 +141,8 @@ Khi bot đã được mời vào server của bạn và đang chạy:
 
 ```
 Noitu/                     # Thư mục gốc của dự án
-├── .git/                  # (Bị Git bỏ qua trong liệt kê này)
-├── __pycache__/           # (Bị Git bỏ qua)
-├── moitruongao/           # Môi trường ảo Python (nếu bạn tạo)
+├── .git/                  
 ├── Noitu/                 # Module chính của bot
-│   ├── __pycache__/       # (Bị Git bỏ qua)
 │   ├── cogs/              # Chứa các module lệnh (cogs)
 │   │   ├── __init__.py
 │   │   ├── admin_cog.py
@@ -162,7 +159,7 @@ Noitu/                     # Thư mục gốc của dự án
 │   ├── tudien-vn.txt      # Từ điển Tiếng Việt cục bộ
 │   ├── utils.py           # Các hàm tiện ích
 │   └── wiktionary_api.py  # Tương tác với API Wiktionary
-├── .env                   # Chứa BOT_TOKEN và DATABASE_URL (QUAN TRỌNG: KHÔNG COMMIT FILE NÀY)
+├── .env                   # Chứa BOT_TOKEN và DATABASE_URL 
 ├── .gitignore             # Các file/thư mục bị Git bỏ qua
 ├── dump_page_wikitionary_jp.py # Script tiện ích để xử lý dump Wiktionary JP
 ├── Procfile               # (Cho triển khai trên Heroku)
@@ -324,11 +321,8 @@ Once the bot is invited to your server and running:
 
 ```
 Noitu/                     # Project Root
-├── .git/                  # (Ignored by Git in listing)
-├── __pycache__/           # (Ignored by Git)
 ├── venv/                  # Python virtual environment (if you create one)
 ├── Noitu/                 # Main bot module
-│   ├── __pycache__/       # (Ignored by Git)
 │   ├── cogs/              # Contains command modules (cogs)
 │   │   ├── __init__.py
 │   │   ├── admin_cog.py
@@ -345,7 +339,7 @@ Noitu/                     # Project Root
 │   ├── tudien-vn.txt      # Local Vietnamese dictionary
 │   ├── utils.py           # Utility functions
 │   └── wiktionary_api.py  # Wiktionary API interaction
-├── .env                   # Stores BOT_TOKEN and DATABASE_URL (IMPORTANT: DO NOT COMMIT THIS FILE)
+├── .env                   # Stores BOT_TOKEN and DATABASE_URL 
 ├── .gitignore             # Files/folders ignored by Git
 ├── dump_page_wikitionary_jp.py # Utility script for processing Wiktionary JP dump
 ├── Procfile               # (For Heroku deployment)
@@ -509,11 +503,8 @@ Noitu/                     # Project Root
 
 ```
 Noitu/                     # プロジェクトルート
-├── .git/                  # (Gitのリストでは無視)
-├── __pycache__/           # (Gitで無視)
 ├── venv/                  # Python仮想環境 (作成した場合)
 ├── Noitu/                 # メインボットモジュール
-│   ├── __pycache__/       # (Gitで無視)
 │   ├── cogs/              # コマンドモジュール (cogs) を格納
 │   │   ├── __init__.py
 │   │   ├── admin_cog.py
@@ -530,7 +521,7 @@ Noitu/                     # プロジェクトルート
 │   ├── tudien-vn.txt      # ローカルベトナム語辞書
 │   ├── utils.py           # ユーティリティ関数
 │   └── wiktionary_api.py  # Wiktionary APIとの対話
-├── .env                   # BOT_TOKENとDATABASE_URLを格納 (重要: このファイルはコミットしないでください)
+├── .env                   # BOT_TOKENとDATABASE_URLを格納
 ├── .gitignore             # Gitで無視されるファイル/フォルダ
 ├── dump_page_wikitionary_jp.py # Wiktionary JPダンプ処理用ユーティリティスクリプト
 ├── Procfile               # (Herokuデプロイ用)
